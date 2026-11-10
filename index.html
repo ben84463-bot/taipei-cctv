@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cut">
+<title>臺北路口監視器</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<style>
+:root{
+  --bg:#1b1c1f; --panel:#26282c; --panel2:#2f3236; --line:#3a3d42;
+  --text:#e8e8e8; --muted:#9a9ea5; --accent:#4f9cff; --sel:#ffb020; --danger:#ff5d5d; --ok:#3ecf8e;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;font-size:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+header{height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);background:#202125}
+header h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.5px}
+header .sub{color:var(--muted);font-size:12px}
+header .sp{flex:1}
+.pill{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px}
+.pill b{color:var(--sel)}
+#app{display:flex;height:calc(100% - 52px)}
+aside{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+aside section{padding:12px 14px;border-bottom:1px solid var(--line)}
+aside h2{font-size:13px;color:var(--muted);font-weight:500;margin:0 0 8px}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.on{border-color:var(--ok);color:var(--ok)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+input[type=search],input[type=number],select{background:#1d1e21;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font:inherit}
+input[type=search]{width:100%}
+.status{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
+.status.err{color:var(--danger)}
+.list{flex:1;overflow:auto;min-height:0}
+.item{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid #2c2e32;cursor:pointer}
+.item:hover{background:#2c2f34}
+.item .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .d{color:var(--muted);font-size:12px;flex:none}
+.item .ck{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--muted);flex:none}
+.item.sel .ck{background:var(--sel);border-color:var(--sel)}
+#main{flex:1;display:flex;min-width:0;position:relative}
+#mapwrap{flex:1;position:relative;min-width:0}
+#map{position:absolute;inset:0}
+#grid{display:none;flex:1.25;min-width:0;background:#111;border-left:1px solid var(--line);flex-direction:column}
+#app.split #grid{display:flex}
+#grid .gh{height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line);background:#1a1b1e}
+#grid .gh .sp{flex:1}
+#tiles{flex:1;display:grid;gap:4px;padding:4px;min-height:0;grid-auto-rows:1fr}
+.tile{position:relative;background:#000;border-radius:4px;overflow:hidden;min-height:0}
+.tile video,.tile img,.tile iframe{width:100%;height:100%;object-fit:contain;display:block;border:0;background:#000}
+.tile .cap{position:absolute;left:0;right:0;top:0;display:flex;gap:6px;align-items:center;padding:4px 6px;
+  background:linear-gradient(#000c,#0000);font-size:12px}
+.tile .cap .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .cap .no{background:var(--sel);color:#000;border-radius:3px;padding:0 5px;font-weight:700}
+.tile .cap button{background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px}
+.tile .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+  color:var(--muted);font-size:12px;padding:12px;pointer-events:none}
+.tile .msg a{pointer-events:auto;color:var(--accent)}
+.tile.focus{grid-column:1/-1;grid-row:1/-1;z-index:2}
+.empty{color:var(--muted);display:flex;align-items:center;justify-content:center;flex:1;text-align:center;padding:20px}
+/* map popup */
+.maplibregl-popup-content{background:var(--panel);color:var(--text);padding:8px;border-radius:8px;box-shadow:0 6px 20px #0008;width:300px}
+.maplibregl-popup-tip{border-top-color:var(--panel)!important;border-bottom-color:var(--panel)!important}
+.maplibregl-popup-close-button{color:#fff;font-size:18px}
+.pp h3{font-size:13px;margin:0 22px 6px 0}
+.pp .v{aspect-ratio:16/10;background:#000;border-radius:4px;overflow:hidden;position:relative}
+.pp .row{margin-top:6px}
+.me-dot{width:16px;height:16px;border-radius:50%;background:var(--accent);border:3px solid #fff;box-shadow:0 0 0 6px #4f9cff44}
+#geo{position:absolute;top:10px;left:10px;z-index:5;width:min(380px,calc(100% - 70px))}
+#geo form{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;box-shadow:0 4px 14px #0007}
+#geo input{flex:1;min-width:0;background:transparent;border:0;color:var(--text);padding:9px 12px;font:inherit;outline:none}
+#geo form button{background:transparent;border:0;border-left:1px solid var(--line);padding:0 12px}
+#geoRes{margin-top:4px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:none;max-height:50vh;overflow-y:auto;box-shadow:0 4px 14px #0007}
+#geoRes .r{padding:8px 12px;border-bottom:1px solid #2c2e32;cursor:pointer}
+#geoRes .r:hover{background:#2c2f34}
+#geoRes .r small{display:block;color:var(--muted);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#geoRes .r .tag{font-size:11px;color:#000;background:var(--sel);border-radius:3px;padding:0 4px;margin-right:6px}
+#geoRes .info{padding:8px 12px;color:var(--muted);font-size:12px}
+.place-pin{width:22px;height:22px;border-radius:50% 50% 50% 0;background:#ff5d5d;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 6px #000a}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000d;padding:8px 14px;border-radius:8px;display:none;z-index:50}
+#mobbar{display:none}
+@media (max-width:820px){
+  aside{position:absolute;z-index:20;top:52px;bottom:0;left:0;transform:translateX(-100%);transition:.2s}
+  #app.side aside{transform:none}
+  #app.split #mapwrap{display:none}
+  #mobbar{display:inline-flex}
+  header .sub{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <button class="btn" id="mobbar" onclick="toggleSide()">☰</button>
+  <h1>路口監視器即時影像</h1>
+  <span class="sub">資料：臺北市交通管制工程處 ATIS（同臺北城市儀表板 D020301）</span>
+  <span class="sp"></span>
+  <span class="pill">已選 <b id="selCount">0</b> / 16</span>
+  <button class="btn" id="viewBtn" onclick="toggleSplit()">多畫面</button>
+</header>
+<div id="app">
+  <aside>
+    <section>
+      <h2>資料來源</h2>
+      <div class="row">
+        <button class="btn primary" onclick="loadFromApi()">重新載入</button>
+        <label class="btn">匯入 JSON<input type="file" accept=".json,.geojson" hidden onchange="loadFromFile(this.files[0])"></label>
+      </div>
+      <div class="status" id="dataStatus">載入中…</div>
+    </section>
+    <section>
+      <h2>我的位置／搜尋地點的附近</h2>
+      <div class="row">
+        <button class="btn" id="locBtn" onclick="toggleLocate()">📍 開始定位</button>
+        <select id="radius" onchange="renderList()">
+          <option value="300">300 公尺</option><option value="500" selected>500 公尺</option>
+          <option value="1000">1 公里</option><option value="2000">2 公里</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn" id="nearBtn" onclick="addNearest()" disabled>加入最近的畫面</button>
+        <label class="row" style="gap:4px;font-size:12px;color:var(--muted)"><input type="checkbox" id="follow" checked>地圖跟隨</label>
+      </div>
+      <div class="status" id="locStatus">尚未定位</div>
+    </section>
+    <section>
+      <input type="search" id="q" placeholder="搜尋路名或編號，例如：復興北路" oninput="renderList()">
+      <div class="row" style="margin-top:6px">
+        <button class="btn" onclick="clearAll()">清除全部選取</button>
+      </div>
+    </section>
+    <div class="list" id="list"></div>
+  </aside>
+  <div id="main">
+    <div id="mapwrap"><div id="map"></div>
+      <div id="geo">
+        <form onsubmit="geoSearch(event)">
+          <input id="geoQ" type="search" placeholder="搜尋地點、地址或路口，例如：南京復興站" autocomplete="off">
+          <button type="button" id="geoClear" title="清除地點" onclick="clearPlace()" style="display:none">✕</button>
+          <button type="submit" title="搜尋">🔍</button>
+        </form>
+        <div id="geoRes"></div>
+      </div></div>
+    <div id="grid">
+      <div class="gh"><span id="gridTitle">多畫面</span><span class="sp"></span>
+        <button class="btn" onclick="reloadAll()">全部重新整理</button>
+        <button class="btn" onclick="toggleSplit(false)">收合</button></div>
+      <div id="tiles"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ===== 設定 ===== */
+const MAX = 16;
+// 與臺北城市儀表板 DE 管線 D020301 相同的來源（POST, form-urlencoded）
+const API = "https://itsapi.taipei.gov.tw/TPTS_API/roadInformation/CCTVByLBS";
+const API_CENTER = {lng:121.460477, lat:25.019086, distance:10000000};
+const TPE = [121.5434, 25.0571];
+
+let cams = [];                 // {id,name,lat,lng,road,stream,preview,dist}
+let selected = [];             // id 陣列，順序 = 畫面編號
+let place = null, placeMarker = null; const ref = () => place || me;
+let me = null, watchId = null, meMarker = null, accFeature = null;
+let popup = null, popupPlayer = null;
+const players = new Map();     // id -> cleanup()
+
+/* ===== 地圖 ===== */
+const map = new maplibregl.Map({
+  container:"map",
+  style:"https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  center:TPE, zoom:13, attributionControl:{compact:true}
+});
+map.addControl(new maplibregl.NavigationControl(),"top-right");
+
+map.on("load", async () => {
+  map.addImage("cam", camIcon("#d9dde3"), {pixelRatio:2});
+  map.addImage("cam-sel", camIcon("#ffb020"), {pixelRatio:2});
+  map.addSource("cams",{type:"geojson",data:fc([])});
+  map.addSource("acc",{type:"geojson",data:fc([])});
+  map.addLayer({id:"acc",type:"fill",source:"acc",paint:{"fill-color":"#4f9cff","fill-opacity":.12}});
+  map.addLayer({id:"cams",type:"symbol",source:"cams",layout:{
+    "icon-image":["case",["get","sel"],"cam-sel","cam"],
+    "icon-size":["interpolate",["linear"],["zoom"],11,.6,14,.95,18,1.25],
+    "icon-allow-overlap":true,
+    "text-field":["case",["get","sel"],["to-string",["get","no"]],""],
+    "text-size":12,"text-offset":[0,-1.6],"text-allow-overlap":true,
+    "symbol-sort-key":["case",["get","sel"],1,0]
+  },paint:{"text-color":"#ffb020","text-halo-color":"#000","text-halo-width":1.5}});
+  map.on("mouseenter","cams",()=>map.getCanvas().style.cursor="pointer");
+  map.on("mouseleave","cams",()=>map.getCanvas().style.cursor="");
+  map.on("click","cams",e=>{ const id=e.features[0].properties.id; openPopup(cams.find(c=>c.id===id)); });
+  restoreSel();
+  await loadFromApi();
+});
+
+function camIcon(color){
+  const c=document.createElement("canvas");c.width=c.height=56;const g=c.getContext("2d");
+  g.fillStyle="#000a";g.beginPath();g.arc(28,28,26,0,7);g.fill();
+  g.fillStyle=color;
+  g.beginPath();g.roundRect(10,19,26,17,3);g.fill();          // 機身
+  g.beginPath();g.moveTo(36,23);g.lineTo(46,17);g.lineTo(46,38);g.lineTo(36,32);g.fill(); // 鏡頭
+  g.fillRect(19,36,4,8);g.fillRect(14,43,14,3);                // 支架
+  g.fillStyle="#000";g.beginPath();g.arc(17,27,2.5,0,7);g.fill();
+  return g.getImageData(0,0,56,56);
+}
+const fc = f => ({type:"FeatureCollection",features:f});
+function refreshLayer(){
+  const s=map.getSource("cams"); if(!s) return;
+  s.setData(fc(cams.map(c=>({type:"Feature",geometry:{type:"Point",coordinates:[c.lng,c.lat]},
+    properties:{id:c.id,sel:selected.includes(c.id),no:selected.indexOf(c.id)+1}}))));
+}
+
+/* ===== 資料載入 ===== */
+async function loadFromApi(){
+  setStatus("向交通局 API 取得監視器清單…");
+  try{
+    const body=new URLSearchParams({distance:API_CENTER.distance,lng:API_CENTER.lng,lat:API_CENTER.lat,language:"ZH"});
+    const r=await fetch(API,{method:"POST",body});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    ingest(await r.json(),"交通局 ATIS API");
+  }catch(e){
+    console.warn(e);
+    setStatus(`無法直接連線交通局 API（${e.message}）。可能是瀏覽器跨來源（CORS）限制。
+      可改用「匯入 JSON」載入同一份資料。`,true);
+  }
+}
+function loadFromFile(f){
+  if(!f) return;
+  f.text().then(t=>ingest(JSON.parse(t),"匯入檔案："+f.name)).catch(e=>setStatus("檔案解析失敗："+e.message,true));
+}
+// 接受：API 原始格式 {locations:[...]}、陣列、或 GeoJSON
+function ingest(j,src){
+  let rows=[];
+  if(j && Array.isArray(j.locations)) rows=j.locations;
+  else if(Array.isArray(j)) rows=j;
+  else if(j && Array.isArray(j.features)) rows=j.features.map(f=>({...f.properties,
+      lng:f.geometry?.coordinates?.[0], lat:f.geometry?.coordinates?.[1]}));
+  cams=rows.map(r=>{
+    let name=r.cctvName??r.name??"";
+    if(r.cctvName && name.includes("-")) name=name.split("-").slice(1).join("-"); // 同 D020301 去除序號
+    return {id:String(r.cctvId??r.id??r.CCTVID),name:name||String(r.cctvId??r.id),
+      lat:+r.lat, lng:+r.lng, road:r.roadType??r.road_type??"",
+      stream:r.videoStreamURL??r.stream_url??r.VideoStreamURL??"",
+      preview:r.videoPreviewImgUrl??r.preview_img_url??""};
+  }).filter(c=>isFinite(c.lat)&&isFinite(c.lng)&&c.lat!==0);
+  selected=selected.filter(id=>cams.some(c=>c.id===id));
+  setStatus(`${src}｜共 ${cams.length} 支｜${new Date().toLocaleTimeString("zh-TW",{hour12:false})}`);
+  refreshLayer(); renderList(); renderTiles();
+}
+function setStatus(t,err){const el=document.getElementById("dataStatus");el.textContent=t;el.classList.toggle("err",!!err);}
+
+/* ===== 定位 ===== */
+function toggleLocate(){
+  const b=document.getElementById("locBtn");
+  if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;b.textContent="📍 開始定位";b.classList.remove("on");return;}
+  if(!navigator.geolocation){locMsg("此瀏覽器不支援定位",true);return;}
+  b.textContent="⏹ 停止定位";b.classList.add("on");locMsg("定位中…（請允許瀏覽器存取位置）");
+  let first=true;
+  watchId=navigator.geolocation.watchPosition(p=>{
+    me={lng:p.coords.longitude,lat:p.coords.latitude,acc:p.coords.accuracy};
+    if(first) clearPlace(true);
+    if(!meMarker){const el=document.createElement("div");el.className="me-dot";meMarker=new maplibregl.Marker({element:el});}
+    meMarker.setLngLat([me.lng,me.lat]).addTo(map);
+    if(!place) map.getSource("acc")?.setData(fc([circle(me.lng,me.lat,me.acc)]));
+    if(!place && (first||document.getElementById("follow").checked)) map.easeTo({center:[me.lng,me.lat],zoom:first?Math.max(map.getZoom(),16):map.getZoom()});
+    first=false;
+    locMsg(`${me.lat.toFixed(5)}, ${me.lng.toFixed(5)}｜誤差約 ${Math.round(me.acc)} 公尺｜${new Date().toLocaleTimeString("zh-TW",{hour12:false})}`);
+    updateNearBtn();
+    renderList();
+  },e=>{locMsg("定位失敗："+({1:"使用者拒絕授權",2:"無法取得位置",3:"逾時"}[e.code]||e.message),true);
+        toggleLocate();},{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+}
+function locMsg(t,err){const el=document.getElementById("locStatus");el.textContent=t;el.classList.toggle("err",!!err);}
+function dist(a,b){const R=6371000,r=Math.PI/180,dLa=(b.lat-a.lat)*r,dLo=(b.lng-a.lng)*r;
+  const x=Math.sin(dLa/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+function circle(lng,lat,m){const pts=[];for(let i=0;i<=48;i++){const t=i/48*2*Math.PI;
+  pts.push([lng+m*Math.cos(t)/(111320*Math.cos(lat*Math.PI/180)),lat+m*Math.sin(t)/110540]);}
+  return {type:"Feature",geometry:{type:"Polygon",coordinates:[pts]}};}
+function addNearest(){
+  const a=ref(); if(!a) return;
+  const R=+document.getElementById("radius").value;
+  const near=cams.map(c=>({c,d:dist(a,c)})).filter(x=>x.d<=R).sort((a,b)=>a.d-b.d);
+  if(!near.length){toast(`${place?"「"+place.label+"」":"目前位置"}半徑 ${R} 公尺內沒有監視器`);return;}
+  let n=0; for(const {c} of near){ if(selected.length>=MAX) break; if(!selected.includes(c.id)){selected.push(c.id);n++;} }
+  afterSelChange(); toast(`已加入 ${n} 個畫面`+(selected.length>=MAX?"（已達 16 個上限）":""));
+  toggleSplit(true);
+}
+
+/* ===== 地點搜尋 ===== */
+// 地名／地址：OpenStreetMap Nominatim（免金鑰，限每秒 1 次，故採按 Enter 才查詢）
+// 另外同時比對監視器名稱（路口名），兩種結果合併顯示
+const BBOX="121.28,25.30,121.80,24.90"; // 雙北範圍（西,北,東,南）
+async function geoSearch(e){
+  e?.preventDefault();
+  const q=document.getElementById("geoQ").value.trim(); const box=document.getElementById("geoRes");
+  if(!q){box.style.display="none";return;}
+  box.style.display="block"; box.innerHTML=`<div class="info">搜尋中…</div>`;
+  // 1) 監視器名稱比對（例如「復興北路」「民權東路」）
+  const keys=q.split(/[\s、,，與和及&]+/).filter(Boolean);
+  const camHits=cams.filter(c=>keys.every(k=>c.name.includes(k))).slice(0,5)
+    .map(c=>({label:c.name,sub:"監視器位置",lat:c.lat,lng:c.lng,cam:true}));
+  // 2) 地名／地址
+  let geoHits=[], err="";
+  try{
+    const u=new URL("https://nominatim.openstreetmap.org/search");
+    u.search=new URLSearchParams({q,format:"jsonv2",limit:8,countrycodes:"tw","accept-language":"zh-TW",viewbox:BBOX,bounded:1});
+    const r=await fetch(u); if(!r.ok) throw new Error("HTTP "+r.status);
+    geoHits=(await r.json()).map(x=>({label:x.name||x.display_name.split(",")[0],sub:x.display_name,lat:+x.lat,lng:+x.lon}));
+    if(!geoHits.length){ // 範圍外再試一次（例如使用者打其他縣市）
+      u.searchParams.delete("bounded"); const r2=await fetch(u);
+      if(r2.ok) geoHits=(await r2.json()).map(x=>({label:x.name||x.display_name.split(",")[0],sub:x.display_name,lat:+x.lat,lng:+x.lon}));
+    }
+  }catch(ex){ err="地名查詢服務無法連線（"+ex.message+"）"; }
+  const all=[...camHits,...geoHits];
+  if(!all.length){box.innerHTML=`<div class="info">${err||"找不到「"+esc(q)+"」，可試試加上行政區或改用路口名稱。"}</div>`;return;}
+  box.innerHTML=all.map((h,i)=>`<div class="r" data-i="${i}">${h.cam?'<span class="tag">監視器</span>':""}${esc(h.label)}<small>${esc(h.sub)}</small></div>`).join("")
+    +(err?`<div class="info">${esc(err)}</div>`:"");
+  box.querySelectorAll(".r").forEach(el=>el.onclick=()=>setPlace(all[+el.dataset.i]));
+}
+function setPlace(h){
+  place={lat:h.lat,lng:h.lng,label:h.label};
+  if(!placeMarker){const el=document.createElement("div");el.className="place-pin";placeMarker=new maplibregl.Marker({element:el,anchor:"bottom-left"});}
+  placeMarker.setLngLat([h.lng,h.lat]).addTo(map);
+  map.getSource("acc")?.setData(fc([circle(h.lng,h.lat,+document.getElementById("radius").value)]));
+  map.flyTo({center:[h.lng,h.lat],zoom:16.5});
+  document.getElementById("geoRes").style.display="none";
+  document.getElementById("geoQ").value=h.label;
+  document.getElementById("geoClear").style.display="";
+  document.getElementById("q").value="";
+  updateNearBtn(); renderList();
+  if(window.innerWidth<=820) document.getElementById("app").classList.add("side");
+}
+function clearPlace(silent){
+  place=null; placeMarker?.remove();
+  document.getElementById("geoClear").style.display="none";
+  if(!silent){document.getElementById("geoQ").value="";document.getElementById("geoRes").style.display="none";}
+  map.getSource("acc")?.setData(fc(me?[circle(me.lng,me.lat,me.acc)]:[]));
+  if(me) map.easeTo({center:[me.lng,me.lat]});
+  updateNearBtn(); renderList();
+}
+function updateNearBtn(){
+  const b=document.getElementById("nearBtn"); b.disabled=!ref();
+  b.textContent=place?`加入「${place.label.slice(0,8)}」附近的畫面`:"加入最近的畫面";
+}
+document.getElementById("geoQ").addEventListener("input",e=>{if(!e.target.value) document.getElementById("geoRes").style.display="none";});
+document.getElementById("radius").addEventListener("change",()=>{ if(place) map.getSource("acc")?.setData(fc([circle(place.lng,place.lat,+document.getElementById("radius").value)])); });
+
+/* ===== 清單 ===== */
+function renderList(){
+  const q=document.getElementById("q").value.trim();
+  const R=+document.getElementById("radius").value;
+  const a=ref();
+  let rows=cams.map(c=>({...c,dist:a?dist(a,c):null}));
+  if(q) rows=rows.filter(c=>c.name.includes(q)||c.id.includes(q));
+  else if(a) rows=rows.filter(c=>c.dist<=R);
+  rows.sort((a,b)=>(selected.includes(b.id)-selected.includes(a.id))||((a.dist??0)-(b.dist??0))||a.name.localeCompare(b.name,"zh-Hant"));
+  const el=document.getElementById("list");
+  const hint=!q&&!a?`<div class="status" style="padding:8px 14px">定位或在地圖上方搜尋地點後，會列出附近監視器；也可直接輸入路名篩選。</div>`
+    :(!q&&a?`<div class="status" style="padding:8px 14px">以「${esc(place?place.label:"我的位置")}」為中心，半徑 ${fmtD(R)}</div>`:"");
+  el.innerHTML=hint+rows.slice(0,300).map(c=>`<div class="item ${selected.includes(c.id)?"sel":""}" data-id="${c.id}">
+    <span class="ck"></span><span class="nm" title="${esc(c.name)}">${esc(c.name)}</span>
+    <span class="d">${c.dist!=null?fmtD(c.dist):""}</span></div>`).join("")
+    +(rows.length>300?`<div class="status" style="padding:8px 14px">僅顯示前 300 筆，請輸入關鍵字縮小範圍。</div>`:"")
+    +(!rows.length&&(q||a)?`<div class="status" style="padding:8px 14px">沒有符合的監視器。</div>`:"");
+  el.querySelectorAll(".item").forEach(it=>{
+    it.onclick=e=>{const c=cams.find(x=>x.id===it.dataset.id);toggleSel(c.id);};
+    it.ondblclick=()=>{const c=cams.find(x=>x.id===it.dataset.id);map.flyTo({center:[c.lng,c.lat],zoom:17});openPopup(c);};
+  });
+}
+const fmtD=d=>d<1000?Math.round(d)+" m":(d/1000).toFixed(1)+" km";
+const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+/* ===== 選取 ===== */
+function toggleSel(id){
+  const i=selected.indexOf(id);
+  if(i>=0) selected.splice(i,1);
+  else{ if(selected.length>=MAX){toast("最多同時 16 個畫面，請先移除其他畫面");return false;} selected.push(id); }
+  afterSelChange(); return true;
+}
+function clearAll(){selected=[];afterSelChange();}
+function afterSelChange(){
+  document.getElementById("selCount").textContent=selected.length;
+  try{localStorage.setItem("cctv-sel",JSON.stringify(selected));}catch(e){}
+  refreshLayer(); renderList(); renderTiles(); updatePopupBtn();
+  if(selected.length && !document.getElementById("app").classList.contains("split") && window.innerWidth>820) toggleSplit(true);
+}
+function restoreSel(){try{selected=JSON.parse(localStorage.getItem("cctv-sel")||"[]");}catch(e){selected=[];}
+  document.getElementById("selCount").textContent=selected.length;}
+
+/* ===== 彈出視窗（單一預覽，如原儀表板） ===== */
+function openPopup(c){
+  if(!c) return;
+  if(popup) popup.remove();
+  const box=document.createElement("div");box.className="pp";
+  box.innerHTML=`<h3>${esc(c.name)}</h3><div class="v"></div>
+    <div class="row"><button class="btn primary" id="ppBtn"></button>
+    <a class="btn" href="${esc(c.stream)}" target="_blank" rel="noopener" style="text-decoration:none">新分頁</a>
+    <span class="status" style="margin:0">${ref()?fmtD(dist(ref(),c)):""}</span></div>`;
+  box.dataset.id=c.id;
+  popupPlayer=mountPlayer(box.querySelector(".v"),c);
+  popup=new maplibregl.Popup({maxWidth:"320px",offset:14}).setLngLat([c.lng,c.lat]).setDOMContent(box).addTo(map);
+  popup.on("close",()=>{popupPlayer&&popupPlayer();popupPlayer=null;});
+  box.querySelector("#ppBtn").onclick=()=>{toggleSel(c.id);};
+  updatePopupBtn();
+}
+function updatePopupBtn(){
+  const b=document.getElementById("ppBtn"); if(!b) return;
+  const id=b.closest(".pp").dataset.id, on=selected.includes(id);
+  b.textContent=on?`移出多畫面（#${selected.indexOf(id)+1}）`:"加入多畫面";
+}
+
+/* ===== 播放器：依網址格式自動判斷 ===== */
+// 原儀表板 MapPopup：.m3u8/含 hls → hls.js；freeway.gov.tw → <img>；youtube → iframe；其餘 → <video>
+// 另加：<video> 播放失敗時自動改用 <img>（部分路口為 MJPEG 串流或快照）
+function mountPlayer(host,c){
+  host.innerHTML=""; const url=c.stream;
+  const msg=document.createElement("div");msg.className="msg";msg.textContent="影像載入中…";host.appendChild(msg);
+  const fail=t=>{msg.innerHTML=`${t}<br><a href="${esc(url)}" target="_blank" rel="noopener">在新分頁開啟</a>`;msg.style.display="flex";};
+  if(!url){fail("此監視器沒有影像網址");return()=>{};}
+  let hls=null, el, timer=null;
+  const asImg=()=>{
+    host.querySelector("video")?.remove();
+    el=document.createElement("img");el.alt=c.name;el.src=url;
+    el.onload=()=>msg.style.display="none"; el.onerror=()=>fail("影像無法載入（可能已離線或被瀏覽器阻擋）");
+    host.prepend(el);
+    // 若是單張快照（非 MJPEG），每 5 秒重新抓取
+    if(/\.(jpe?g|png)(\?|$)/i.test(url)) timer=setInterval(()=>{el.src=url+(url.includes("?")?"&":"?")+"_t="+Date.now();},5000);
+  };
+  if(/youtube\.com|youtu\.be/.test(url)){
+    el=document.createElement("iframe");el.src=url;el.allow="autoplay; encrypted-media";host.prepend(el);msg.style.display="none";
+  }else if(/freeway\.gov\.tw|\.jpe?g|\.png|mjpe?g/i.test(url)){
+    asImg();
+  }else{
+    el=document.createElement("video");el.muted=true;el.autoplay=true;el.playsInline=true;el.loop=true;el.controls=false;
+    host.prepend(el);
+    el.onplaying=()=>msg.style.display="none";
+    if(/\.m3u8|hls/i.test(url)){
+      if(window.Hls&&Hls.isSupported()){hls=new Hls({lowLatencyMode:true});hls.loadSource(url);hls.attachMedia(el);
+        hls.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal){hls.destroy();hls=null;fail("串流中斷或無法播放");}});}
+      else if(el.canPlayType("application/vnd.apple.mpegurl")) el.src=url;
+      else fail("此瀏覽器不支援 HLS");
+    }else{
+      el.src=url; el.onerror=()=>asImg();
+    }
+    el.play?.().catch(()=>{});
+  }
+  return ()=>{ if(timer) clearInterval(timer); if(hls) hls.destroy();
+    if(el&&el.tagName==="VIDEO"){el.pause();el.removeAttribute("src");el.load();}
+    if(el&&el.tagName==="IMG") el.src=""; host.innerHTML=""; };
+}
+
+/* ===== 多畫面格 ===== */
+function layout(n){ // 回傳欄數
+  const wide=document.getElementById("tiles").clientWidth>=document.getElementById("tiles").clientHeight;
+  if(n<=1) return 1; if(n<=2) return wide?2:1; if(n<=4) return 2; if(n<=6) return wide?3:2; if(n<=9) return 3; if(n<=12) return wide?4:3; return 4;
+}
+function renderTiles(){
+  const box=document.getElementById("tiles");
+  document.getElementById("gridTitle").textContent=`多畫面（${selected.length}/16）`;
+  // 移除已取消者
+  for(const [id,clean] of players){ if(!selected.includes(id)){clean();players.delete(id);box.querySelector(`[data-id="${CSS.escape(id)}"]`)?.remove();} }
+  box.querySelector(".empty")?.remove();
+  if(!selected.length){box.style.gridTemplateColumns="1fr";box.innerHTML=`<div class="empty">在地圖點選監視器並按「加入多畫面」，<br>或按左側清單、「加入最近的畫面」。最多 16 個。</div>`;return;}
+  selected.forEach((id,i)=>{
+    const c=cams.find(x=>x.id===id); if(!c) return;
+    let t=box.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
+    if(!t){
+      t=document.createElement("div");t.className="tile";t.dataset.id=id;
+      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
+        <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大">⤢</button>
+        <button data-a="re" title="重新整理">↻</button><button data-a="x" title="移除">✕</button></div>`;
+      t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
+      t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
+      t.querySelector("[data-a=big]").onclick=()=>t.classList.toggle("focus");
+      t.querySelector("[data-a=loc]").onclick=()=>{ if(window.innerWidth<=820) toggleSplit(false); map.flyTo({center:[c.lng,c.lat],zoom:17}); };
+      players.set(id,mountPlayer(t.querySelector(".v"),c));
+    }
+    t.querySelector(".no").textContent=i+1; t.style.order=i; box.appendChild(t);
+  });
+  const cols=layout(selected.length);
+  box.style.gridTemplateColumns=`repeat(${cols},1fr)`;
+  box.style.gridTemplateRows=`repeat(${Math.ceil(selected.length/cols)},1fr)`;
+}
+function reloadAll(){ for(const id of selected){const t=document.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
+  const c=cams.find(x=>x.id===id); players.get(id)?.(); players.set(id,mountPlayer(t.querySelector(".v"),c)); } }
+
+/* ===== 介面切換 ===== */
+function toggleSplit(force){
+  const app=document.getElementById("app"); const on=force??!app.classList.contains("split");
+  app.classList.toggle("split",on);
+  document.getElementById("viewBtn").textContent=on?(window.innerWidth<=820?"地圖":"收合多畫面"):"多畫面";
+  setTimeout(()=>{map.resize();renderTiles();},50);
+}
+function toggleSide(){document.getElementById("app").classList.toggle("side");}
+function toast(t){const el=document.getElementById("toast");el.textContent=t;el.style.display="block";clearTimeout(toast.h);toast.h=setTimeout(()=>el.style.display="none",2500);}
+window.addEventListener("resize",()=>{if(selected.length) renderTiles();});
+</script>
+</body>
+</html>
