@@ -62,7 +62,26 @@ input[type=search]{width:100%}
 .tile .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
   color:var(--muted);font-size:12px;padding:12px;pointer-events:none}
 .tile .msg a{pointer-events:auto;color:var(--accent)}
-.tile.focus{grid-column:1/-1;grid-row:1/-1;z-index:2}
+.tile .v{z-index:0}
+.tile .hit{position:absolute;inset:0;z-index:1;cursor:zoom-in}
+.tile .cap{z-index:3}
+.tile .msg{z-index:2}
+#tiles.hasfocus{grid-template-columns:1fr!important;grid-template-rows:1fr!important}
+#tiles.hasfocus .tile:not(.focus){display:none}
+.tile.focus .hit{cursor:zoom-out}
+.tile .rec{position:absolute;right:8px;bottom:8px;z-index:3;background:#d22;color:#fff;border-radius:4px;padding:1px 7px;font-size:12px;display:none}
+.tile.recording .rec{display:block}
+.tile.recording{outline:2px solid #d22;outline-offset:-2px}
+.tile:fullscreen{border-radius:0}
+#splitter{width:7px;flex:none;cursor:col-resize;background:var(--line);display:none;position:relative}
+#splitter::after{content:"";position:absolute;top:50%;left:2px;width:3px;height:36px;margin-top:-18px;border-radius:2px;background:#777}
+#splitter:hover,#splitter.drag{background:var(--accent)}
+#app.split #splitter{display:block}
+#app.split #grid{flex:none;width:var(--gridW,58%)}
+body.dragging{user-select:none;cursor:col-resize}
+body.dragging iframe{pointer-events:none}
+#dlLog{max-height:110px;overflow:auto;font-size:11px;color:var(--muted);margin-top:6px}
+#dlLog div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid #2c2e32;padding:2px 0}
 .empty{color:var(--muted);display:flex;align-items:center;justify-content:center;flex:1;text-align:center;padding:20px}
 /* map popup */
 .maplibregl-popup-content{background:var(--panel);color:var(--text);padding:8px;border-radius:8px;box-shadow:0 6px 20px #0008;width:300px}
@@ -86,6 +105,8 @@ input[type=search]{width:100%}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000d;padding:8px 14px;border-radius:8px;display:none;z-index:50}
 #mobbar{display:none}
 @media (max-width:820px){
+  #splitter{display:none!important}
+  #app.split #grid{width:auto;flex:1}
   aside{position:absolute;z-index:20;top:52px;bottom:0;left:0;transform:translateX(-100%);transition:.2s}
   #app.side aside{transform:none}
   #app.split #mapwrap{display:none}
@@ -129,6 +150,21 @@ input[type=search]{width:100%}
       <div class="status" id="locStatus">尚未定位</div>
     </section>
     <section>
+      <h2>下載</h2>
+      <div class="row">
+        <button class="btn" onclick="snapAll()">📷 全部截圖</button>
+        <select id="recSec"><option value="10">10 秒</option><option value="30" selected>30 秒</option><option value="60">60 秒</option><option value="300">5 分鐘</option></select>
+        <button class="btn" id="recAllBtn" onclick="recordAll()">⏺ 全部錄影</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn" onclick="exportCsv(false)">已選清單 CSV</button>
+        <button class="btn" onclick="exportCsv(true)">全部監視器 CSV</button>
+        <button class="btn" onclick="exportLog()">下載紀錄（SHA-256）</button>
+      </div>
+      <div class="status">截圖與錄影會在畫面左下角加註鏡頭名稱與時間。每一格也可單獨按 📷／⏺。</div>
+      <div id="dlLog"></div>
+    </section>
+    <section>
       <input type="search" id="q" placeholder="搜尋路名或編號，例如：復興北路" oninput="renderList()">
       <div class="row" style="margin-top:6px">
         <button class="btn" onclick="clearAll()">清除全部選取</button>
@@ -146,8 +182,10 @@ input[type=search]{width:100%}
         </form>
         <div id="geoRes"></div>
       </div></div>
+    <div id="splitter" title="拖曳調整地圖與畫面的大小"></div>
     <div id="grid">
       <div class="gh"><span id="gridTitle">多畫面</span><span class="sp"></span>
+        <span class="status" style="margin:0">點畫面放大／縮回・雙擊全螢幕・Esc 返回</span>
         <button class="btn" onclick="reloadAll()">全部重新整理</button>
         <button class="btn" onclick="toggleSplit(false)">收合</button></div>
       <div id="tiles"></div>
@@ -482,21 +520,26 @@ function renderTiles(){
   const box=document.getElementById("tiles");
   document.getElementById("gridTitle").textContent=`多畫面（${selected.length}/16）`;
   // 移除已取消者
-  for(const [id,clean] of players){ if(!selected.includes(id)){clean();players.delete(id);box.querySelector(`[data-id="${CSS.escape(id)}"]`)?.remove();} }
+  for(const [id,clean] of players){ if(!selected.includes(id)){recorders.get(id)?.stop();clean();players.delete(id);box.querySelector(`[data-id="${CSS.escape(id)}"]`)?.remove();} }
   box.querySelector(".empty")?.remove();
+  if(!box.querySelector(".tile.focus")) box.classList.remove("hasfocus");
   if(!selected.length){box.style.gridTemplateColumns="1fr";box.innerHTML=`<div class="empty">在地圖點選監視器並按「加入多畫面」，<br>或按左側清單、「加入最近的畫面」。最多 16 個。</div>`;return;}
   selected.forEach((id,i)=>{
     const c=cams.find(x=>x.id===id); if(!c) return;
     let t=box.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
     if(!t){
       t=document.createElement("div");t.className="tile";t.dataset.id=id;
-      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
-        <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大">⤢</button>
+      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
+        <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大／縮回">⤢</button><button data-a="snap" title="截圖下載">📷</button><button data-a="recd" title="錄影下載">⏺</button>
         <button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
       t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
       t.querySelector("[data-a=open]").href=c.stream||"#"; t.title=c.stream||"";
       t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
-      t.querySelector("[data-a=big]").onclick=()=>t.classList.toggle("focus");
+      t.querySelector("[data-a=big]").onclick=()=>toggleFocus(t);
+      t.querySelector(".hit").onclick=()=>toggleFocus(t);
+      t.querySelector(".hit").ondblclick=()=>{ (document.fullscreenElement?document.exitFullscreen():t.requestFullscreen?.())?.catch?.(()=>{}); };
+      t.querySelector("[data-a=snap]").onclick=()=>snapTile(id);
+      t.querySelector("[data-a=recd]").onclick=()=>recordTile(id);
       t.querySelector("[data-a=loc]").onclick=()=>{ if(window.innerWidth<=820) toggleSplit(false); map.flyTo({center:[c.lng,c.lat],zoom:17}); };
       players.set(id,mountPlayer(t.querySelector(".v"),c));
     }
@@ -517,6 +560,146 @@ function toggleSplit(force){
   setTimeout(()=>{map.resize();renderTiles();},50);
 }
 function toggleSide(){document.getElementById("app").classList.toggle("side");}
+/* ===== 放大 ===== */
+function toggleFocus(t){
+  const box=document.getElementById("tiles"), on=!t.classList.contains("focus");
+  box.querySelectorAll(".tile.focus").forEach(x=>x.classList.remove("focus"));
+  t.classList.toggle("focus",on); box.classList.toggle("hasfocus",on);
+}
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ const f=document.querySelector(".tile.focus"); if(f&&!document.fullscreenElement) toggleFocus(f);} });
+
+/* ===== 拖曳分隔線：調整地圖／多畫面寬度 ===== */
+(()=>{ const sp=document.getElementById("splitter"), main=document.getElementById("main");
+  try{const w=localStorage.getItem("cctv-gridW"); if(w) document.documentElement.style.setProperty("--gridW",w);}catch(e){}
+  sp.addEventListener("pointerdown",e=>{ sp.setPointerCapture(e.pointerId); sp.classList.add("drag"); document.body.classList.add("dragging"); });
+  sp.addEventListener("pointermove",e=>{ if(!sp.classList.contains("drag")) return;
+    const r=main.getBoundingClientRect(); let w=r.right-e.clientX; w=Math.max(240,Math.min(r.width-160,w));
+    document.documentElement.style.setProperty("--gridW",w+"px"); map.resize(); });
+  const end=()=>{ if(!sp.classList.contains("drag")) return; sp.classList.remove("drag"); document.body.classList.remove("dragging");
+    try{localStorage.setItem("cctv-gridW",getComputedStyle(document.documentElement).getPropertyValue("--gridW"));}catch(e){}
+    renderTiles(); };
+  sp.addEventListener("pointerup",end); sp.addEventListener("pointercancel",end);
+  sp.addEventListener("dblclick",()=>{document.documentElement.style.removeProperty("--gridW");try{localStorage.removeItem("cctv-gridW")}catch(e){};map.resize();renderTiles();});
+})();
+
+/* ===== 下載 ===== */
+const dlLog=[];
+const pad=n=>String(n).padStart(2,"0");
+const stamp=(d=new Date())=>`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+const human=(d=new Date())=>d.toLocaleString("zh-TW",{hour12:false});
+const safe=s=>String(s).replace(/[\\/:*?"<>|\s]+/g,"_").slice(0,40);
+const tileOf=id=>document.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
+const mediaOf=id=>tileOf(id)?.querySelector(".v video, .v img, .v iframe");
+
+async function saveBlob(blob,file,c,kind,startAt){
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=file;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  let hash="";
+  try{ hash=[...new Uint8Array(await crypto.subtle.digest("SHA-256",await blob.arrayBuffer()))].map(b=>b.toString(16).padStart(2,"0")).join(""); }catch(e){ hash="（此瀏覽器環境無法計算）"; }
+  const rec={下載時間:human(),類型:kind,擷取起始:startAt?human(startAt):"",鏡頭編號:c.id,鏡頭名稱:c.name,緯度:c.lat,經度:c.lng,影像來源網址:c.stream,檔名:file,位元組:blob.size,SHA256:hash};
+  dlLog.push(rec);
+  const el=document.getElementById("dlLog"); const d=document.createElement("div");
+  d.textContent=`${rec.下載時間}｜${kind}｜${c.name}`; d.title=`${file}\nSHA-256: ${hash}`; el.prepend(d);
+}
+// 在影格上加註鏡頭名稱與時間
+function burn(g,w,h,c,t){
+  const fs=Math.max(12,Math.round(h/26)), txt=`${c.name}（${c.id}）  ${human(t)}`;
+  g.font=`${fs}px "Noto Sans TC","Microsoft JhengHei",sans-serif`;
+  const tw=g.measureText(txt).width; g.fillStyle="rgba(0,0,0,.6)"; g.fillRect(0,h-fs*1.7,tw+fs,fs*1.7);
+  g.fillStyle="#fff"; g.fillText(txt,fs/2,h-fs*.55);
+}
+function dims(el){ return el.tagName==="VIDEO"?[el.videoWidth,el.videoHeight]:[el.naturalWidth,el.naturalHeight]; }
+function loadCorsImage(url,ms=7000){ return new Promise((res,rej)=>{ const im=new Image(); im.crossOrigin="anonymous"; im.referrerPolicy="no-referrer";
+  const t=setTimeout(()=>{im.src="";rej(new Error("逾時"));},ms); im.onload=()=>{clearTimeout(t);res(im);}; im.onerror=()=>{clearTimeout(t);rej(new Error("拒絕"));};
+  im.src=url+(url.includes("?")?"&":"?")+"_t="+Date.now(); }); }
+// 以跨網域授權方式另開一個隱藏影片（伺服器有開放 CORS 時才能被擷取）
+function loadCorsVideo(url,ms=9000){ return new Promise((res,rej)=>{
+  const v=document.createElement("video"); Object.assign(v,{muted:true,playsInline:true,autoplay:true,loop:true}); v.crossOrigin="anonymous";
+  v.style.cssText="position:fixed;left:-9999px;width:2px;height:2px"; document.body.appendChild(v); let h=null;
+  const kill=()=>{ if(h) h.destroy(); v.pause(); v.removeAttribute("src"); v.load(); v.remove(); };
+  const t=setTimeout(()=>{kill();rej(new Error("逾時"));},ms);
+  v.onplaying=()=>{clearTimeout(t); v._kill=kill; res(v);}; v.onerror=()=>{clearTimeout(t);kill();rej(new Error("拒絕"));};
+  if(/\.m3u8|hls/i.test(url)&&window.Hls&&Hls.isSupported()){ h=new Hls(); h.loadSource(url); h.attachMedia(v);
+    h.on(Hls.Events.ERROR,(e,d)=>{ if(d.fatal){clearTimeout(t);kill();rej(new Error("串流錯誤"));} }); }
+  else v.src=url;
+  v.play().catch(()=>{});
+}); }
+function canvasFrom(src,c,t){ const [w,h]=dims(src); if(!w||!h) throw new Error("尚無畫面");
+  const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const g=cv.getContext("2d");
+  g.drawImage(src,0,0,w,h); burn(g,w,h,c,t); g.getImageData(0,0,1,1); /* 跨網域未授權時這裡會丟出 SecurityError */ return cv; }
+const toBlob=cv=>new Promise((res,rej)=>cv.toBlob(b=>b?res(b):rej(new Error("轉檔失敗")),"image/png"));
+
+async function snapTile(id,quiet){
+  const c=cams.find(x=>x.id===id), el=mediaOf(id), t=new Date(); if(!c) return false;
+  const file=`CCTV_${safe(c.id)}_${safe(c.name)}_${stamp(t)}.png`;
+  // 1) 直接擷取目前顯示的畫面
+  if(el&&el.tagName!=="IFRAME"){ try{ await saveBlob(await toBlob(canvasFrom(el,c,t)),file,c,"截圖",t); return true; }catch(e){} }
+  // 2) 以跨網域授權方式重新抓取影像或預覽圖
+  if(el&&el.tagName==="VIDEO"&&c.stream){
+    try{ const v=await loadCorsVideo(c.stream); try{ await saveBlob(await toBlob(canvasFrom(v,c,t)),file,c,"截圖",t); return true; } finally{ v._kill(); } }catch(e){}
+  }
+  for(const u of [c.stream,c.preview].filter(u=>u&&!/\.m3u8|\.mp4/i.test(u))){
+    try{ const im=await loadCorsImage(u); await saveBlob(await toBlob(canvasFrom(im,c,t)),file,c,"截圖",t); return true; }catch(e){}
+  }
+  if(!quiet) toast(`「${c.name}」的伺服器不允許網頁擷取畫面，請按 ↗ 在新分頁開啟後用系統截圖`);
+  return false;
+}
+async function snapAll(){
+  if(!selected.length){toast("尚未選取任何畫面");return;}
+  let ok=0,ng=[];
+  for(const id of [...selected]){ (await snapTile(id,true))?ok++:ng.push(cams.find(x=>x.id===id)?.name); await new Promise(r=>setTimeout(r,350)); }
+  toast(`截圖完成 ${ok} 張`+(ng.length?`；${ng.length} 個鏡頭不允許擷取：${ng.slice(0,3).join("、")}${ng.length>3?"…":""}`:""));
+}
+
+const recorders=new Map();
+function pickMime(){ for(const m of ["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"]) if(window.MediaRecorder&&MediaRecorder.isTypeSupported(m)) return m; return ""; }
+async function recordTile(id,quiet){
+  const c=cams.find(x=>x.id===id), t=tileOf(id);
+  if(recorders.has(id)){ recorders.get(id).stop(); return true; }   // 再按一次＝提早結束
+  let el=mediaOf(id), helper=null;
+  if(!window.MediaRecorder){ if(!quiet) toast("此瀏覽器不支援錄影"); return false; }
+  if(!el||el.tagName==="IFRAME"){ if(!quiet) toast(`「${c.name}」是內嵌播放頁，無法由本頁錄影，請用新分頁開啟後以系統螢幕錄影`); return false; }
+  const [w,h]=dims(el); if(!w){ if(!quiet) toast(`「${c.name}」尚未出現畫面`); return false; }
+  // 先用測試畫布檢查能否擷取（畫布一旦被跨網域畫面「汙染」就無法再用，所以不能用正式畫布測）
+  const canGrab=src=>{ try{ const tc=document.createElement("canvas"); tc.width=tc.height=2; const tg=tc.getContext("2d"); tg.drawImage(src,0,0,2,2); tg.getImageData(0,0,1,1); return true; }catch(e){ return false; } };
+  if(!canGrab(el)){ // 目前畫面無法擷取 → 改用跨網域授權的隱藏影片來錄
+    try{ if(el.tagName!=="VIDEO") throw 0; helper=await loadCorsVideo(c.stream); if(!canGrab(helper)) throw 0; el=helper; }
+    catch(e){ helper?._kill(); if(!quiet) toast(`「${c.name}」的伺服器不允許網頁錄影，請用新分頁開啟後以系統螢幕錄影`); return false; } }
+  const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const g=cv.getContext("2d");
+  const mime=pickMime(), stream=cv.captureStream(15), mr=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:2500000}:{});
+  const chunks=[], start=new Date(), sec=+document.getElementById("recSec").value;
+  let raf, stopT; const draw=()=>{ try{ g.drawImage(el,0,0,w,h); burn(g,w,h,c,new Date()); }catch(e){} raf=requestAnimationFrame(draw); }; draw();
+  mr.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  mr.onstop=async()=>{ cancelAnimationFrame(raf); helper?._kill(); clearTimeout(stopT); clearInterval(tick); recorders.delete(id); t?.classList.remove("recording");
+    const type=mr.mimeType||mime||"video/webm", ext=type.includes("mp4")?"mp4":"webm";
+    await saveBlob(new Blob(chunks,{type}),`CCTV_${safe(c.id)}_${safe(c.name)}_${stamp(start)}_${Math.round((Date.now()-start)/1000)}s.${ext}`,c,"錄影",start);
+    updateRecAllBtn(); };
+  mr.start(1000); recorders.set(id,mr); t?.classList.add("recording");
+  const lab=t?.querySelector(".rec"); const tick=setInterval(()=>{ if(lab) lab.textContent=`● REC ${Math.round((Date.now()-start)/1000)}/${sec}s`; },500);
+  stopT=setTimeout(()=>mr.state!=="inactive"&&mr.stop(), sec*1000);
+  updateRecAllBtn(); return true;
+}
+async function recordAll(){
+  if(recorders.size){ [...recorders.values()].forEach(r=>r.state!=="inactive"&&r.stop()); return; }
+  if(!selected.length){toast("尚未選取任何畫面");return;}
+  let ok=0,ng=[]; for(const id of [...selected]) (await recordTile(id,true))?ok++:ng.push(cams.find(x=>x.id===id)?.name);
+  toast(`開始錄影 ${ok} 個畫面`+(ng.length?`；${ng.length} 個無法錄影（伺服器不允許或為內嵌頁）`:""));
+}
+function updateRecAllBtn(){ document.getElementById("recAllBtn").textContent=recorders.size?`⏹ 停止錄影（${recorders.size}）`:"⏺ 全部錄影"; }
+
+function csv(rows){ if(!rows.length) return ""; const k=Object.keys(rows[0]); const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  return "﻿"+[k.map(q).join(","),...rows.map(r=>k.map(x=>q(r[x])).join(","))].join("\r\n"); }
+function plainSave(text,file){ const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"})); a.download=file; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),60000); }
+function exportCsv(all){
+  const list=all?cams:selected.map(id=>cams.find(c=>c.id===id)).filter(Boolean);
+  if(!list.length){toast(all?"尚未載入監視器資料":"尚未選取任何畫面");return;}
+  const a=ref();
+  plainSave(csv(list.map((c,i)=>({序:all?"":i+1,鏡頭編號:c.id,鏡頭名稱:c.name,緯度:c.lat,經度:c.lng,道路類型:c.road,
+    [a?`距${place?place.label:"我的位置"}(公尺)`:"距離"]:a?Math.round(dist(a,c)):"",影像網址:c.stream,預覽圖網址:c.preview,匯出時間:human()}))),
+    `CCTV_${all?"全部":"已選"}清單_${stamp()}.csv`);
+}
+function exportLog(){ if(!dlLog.length){toast("本次尚未下載任何截圖或錄影");return;} plainSave(csv(dlLog),`CCTV_下載紀錄_${stamp()}.csv`); }
+
 function toast(t){const el=document.getElementById("toast");el.textContent=t;el.style.display="block";clearTimeout(toast.h);toast.h=setTimeout(()=>el.style.display="none",2500);}
 window.addEventListener("resize",()=>{if(selected.length) renderTiles();});
 </script>
