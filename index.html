@@ -58,6 +58,7 @@ input[type=search]{width:100%}
 .tile .cap .n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .cap .no{background:var(--sel);color:#000;border-radius:3px;padding:0 5px;font-weight:700}
 .tile .cap button{background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px}
+.tile iframe.embed,.pp iframe.embed{background:#000}
 .tile .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
   color:var(--muted);font-size:12px;padding:12px;pointer-events:none}
 .tile .msg a{pointer-events:auto;color:var(--accent)}
@@ -421,38 +422,55 @@ function updatePopupBtn(){
 function mountPlayer(host,c){
   host.innerHTML=""; const url=c.stream;
   const msg=document.createElement("div");msg.className="msg";msg.textContent="影像載入中…";host.appendChild(msg);
-  const fail=t=>{msg.innerHTML=`${t}<br><a href="${esc(url)}" target="_blank" rel="noopener">在新分頁開啟</a>`;msg.style.display="flex";};
-  if(!url){fail("此監視器沒有影像網址");return()=>{};}
-  let hls=null, el, timer=null;
-  const asImg=()=>{
-    host.querySelector("video")?.remove();
-    el=document.createElement("img");el.alt=c.name;el.src=url;
-    el.onload=()=>msg.style.display="none"; el.onerror=()=>fail("影像無法載入（可能已離線或被瀏覽器阻擋）");
-    host.prepend(el);
-    // 若是單張快照（非 MJPEG），每 5 秒重新抓取
-    if(/\.(jpe?g|png)(\?|$)/i.test(url)) timer=setInterval(()=>{el.src=url+(url.includes("?")?"&":"?")+"_t="+Date.now();},5000);
-  };
-  if(/youtube\.com|youtu\.be/.test(url)){
-    el=document.createElement("iframe");el.src=url;el.allow="autoplay; encrypted-media";host.prepend(el);msg.style.display="none";
-  }else if(/freeway\.gov\.tw|\.jpe?g|\.png|mjpe?g/i.test(url)){
-    asImg();
-  }else{
-    el=document.createElement("video");el.muted=true;el.autoplay=true;el.playsInline=true;el.loop=true;el.controls=false;
-    host.prepend(el);
-    el.onplaying=()=>msg.style.display="none";
-    if(/\.m3u8|hls/i.test(url)){
-      if(window.Hls&&Hls.isSupported()){hls=new Hls({lowLatencyMode:true});hls.loadSource(url);hls.attachMedia(el);
-        hls.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal){hls.destroy();hls=null;fail("串流中斷或無法播放");}});}
-      else if(el.canPlayType("application/vnd.apple.mpegurl")) el.src=url;
-      else fail("此瀏覽器不支援 HLS");
-    }else{
-      el.src=url; el.onerror=()=>asImg();
+  const hide=()=>msg.style.display="none";
+  if(!url){msg.textContent="此監視器沒有影像網址";return()=>{};}
+
+  // 候選網址：頁面是 https 而影像是 http 時，瀏覽器會擋（混合內容），先改試 https
+  const urls=[url];
+  if(location.protocol==="https:"&&/^http:/i.test(url)) urls.unshift(url.replace(/^http:/i,"https:"));
+
+  // 依網址決定嘗試順序；每一種失敗或逾時就換下一種，最後用 iframe 直接嵌入（多數 ATIS／新北的播放頁屬此類）
+  let order;
+  if(/youtube\.com|youtu\.be/i.test(url)) order=["iframe"];
+  else if(/\.m3u8|hls/i.test(url)) order=["hls","img","iframe"];
+  else if(/freeway\.gov\.tw|\.jpe?g|\.png|mjpe?g|snapshot|cgi-bin/i.test(url)) order=["img","video","iframe"];
+  else order=["video","img","iframe"];
+  const steps=[]; for(const u of urls) for(const k of order) steps.push([k,u]);
+
+  let hls=null, el=null, timer=null, to=null, dead=false, i=-1;
+  const clean=()=>{ clearTimeout(to); if(timer){clearInterval(timer);timer=null;} if(hls){hls.destroy();hls=null;}
+    if(el){ el.onerror=el.onload=el.onplaying=null; if(el.tagName==="VIDEO"){el.pause();el.removeAttribute("src");el.load();} else el.src="about:blank"; el.remove(); el=null; } };
+  const next=()=>{
+    if(dead) return; clean(); i++;
+    if(i>=steps.length){
+      msg.innerHTML=`此鏡頭影像無法嵌入本頁（伺服器拒絕或已離線）<br><a href="${esc(url)}" target="_blank" rel="noopener">在新分頁開啟</a>`;
+      msg.style.display="flex"; return; }
+    const [k,u]=steps[i]; msg.textContent="影像載入中…"; msg.style.display="flex";
+    to=setTimeout(next, k==="iframe"?0:9000);   // 9 秒沒畫面就換下一種方式
+    if(k==="video"||k==="hls"){
+      el=document.createElement("video"); Object.assign(el,{muted:true,autoplay:true,playsInline:true,loop:true});
+      el.setAttribute("referrerpolicy","no-referrer");
+      el.onplaying=()=>{clearTimeout(to);hide();}; el.onerror=next;
+      host.prepend(el);
+      if(k==="hls"){
+        if(window.Hls&&Hls.isSupported()){hls=new Hls({lowLatencyMode:true});hls.loadSource(u);hls.attachMedia(el);
+          hls.on(Hls.Events.ERROR,(e,d)=>{if(d.fatal) next();});}
+        else if(el.canPlayType("application/vnd.apple.mpegurl")) el.src=u; else return next();
+      } else el.src=u;
+      el.play?.().catch(()=>{});
+    }else if(k==="img"){
+      el=document.createElement("img"); el.alt=c.name; el.referrerPolicy="no-referrer";
+      el.onload=()=>{clearTimeout(to);hide();}; el.onerror=next; el.src=u; host.prepend(el);
+      if(/\.(jpe?g|png)(\?|$)/i.test(u)) timer=setInterval(()=>{if(el) el.src=u+(u.includes("?")?"&":"?")+"_t="+Date.now();},5000);
+    }else{ // iframe：跨網域無法偵測是否成功，直接顯示
+      clearTimeout(to);
+      el=document.createElement("iframe"); el.src=u; el.allow="autoplay; encrypted-media; fullscreen";
+      el.referrerPolicy="no-referrer"; el.setAttribute("scrolling","no"); el.className="embed";
+      host.prepend(el); hide();
     }
-    el.play?.().catch(()=>{});
-  }
-  return ()=>{ if(timer) clearInterval(timer); if(hls) hls.destroy();
-    if(el&&el.tagName==="VIDEO"){el.pause();el.removeAttribute("src");el.load();}
-    if(el&&el.tagName==="IMG") el.src=""; host.innerHTML=""; };
+  };
+  next();
+  return ()=>{ dead=true; clean(); host.innerHTML=""; };
 }
 
 /* ===== 多畫面格 ===== */
@@ -474,8 +492,9 @@ function renderTiles(){
       t=document.createElement("div");t.className="tile";t.dataset.id=id;
       t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
         <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大">⤢</button>
-        <button data-a="re" title="重新整理">↻</button><button data-a="x" title="移除">✕</button></div>`;
+        <button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
       t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
+      t.querySelector("[data-a=open]").href=c.stream||"#"; t.title=c.stream||"";
       t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
       t.querySelector("[data-a=big]").onclick=()=>t.classList.toggle("focus");
       t.querySelector("[data-a=loc]").onclick=()=>{ if(window.innerWidth<=820) toggleSplit(false); map.flyTo({center:[c.lng,c.lat],zoom:17}); };
