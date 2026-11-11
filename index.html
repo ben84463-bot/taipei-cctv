@@ -23,7 +23,7 @@ header .sp{flex:1}
 .pill{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px}
 .pill b{color:var(--sel)}
 #app{display:flex;height:calc(100% - 52px)}
-aside{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+aside{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
 aside section{padding:12px 14px;border-bottom:1px solid var(--line)}
 aside h2{font-size:13px;color:var(--muted);font-weight:500;margin:0 0 8px}
 .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -36,7 +36,8 @@ input[type=search],input[type=number],select{background:#1d1e21;border:1px solid
 input[type=search]{width:100%}
 .status{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
 .status.err{color:var(--danger)}
-.list{flex:1;overflow:auto;min-height:0}
+.list{flex:1 0 auto;overflow:auto;min-height:240px;max-height:70vh}
+aside section{flex:none}
 .item{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid #2c2e32;cursor:pointer}
 .item:hover{background:#2c2f34}
 .item .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -118,6 +119,27 @@ body.dragging iframe{pointer-events:none}
 .rpt .v{flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rpt .btn{padding:3px 7px;font-size:12px}
 .btn.picking{border-color:var(--sel);color:var(--sel)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 9px;font-size:12px;display:inline-flex;gap:5px;align-items:center}
+.chip.on{border-color:#3ecf8e;color:#3ecf8e}
+.chip button{background:none;border:0;padding:0;color:var(--muted);font-size:12px}
+.chip button:hover{color:var(--danger)}
+#rList{max-height:260px;overflow:auto;margin-top:6px;border:1px solid var(--line);border-radius:6px;display:none}
+#rList.show{display:block}
+.ri{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid #2c2e32;font-size:12px}
+.ri:last-child{border-bottom:0}
+.ri .no{flex:none;min-width:22px;text-align:center;border-radius:3px;padding:0 3px;background:#3a3d42;color:var(--muted);font-weight:700}
+.ri.inview .no{background:var(--sel);color:#000}
+.ri .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.ri .nm:hover{color:var(--accent)}
+.ri .tg{flex:none;font-size:10px;border:1px solid var(--sel);color:var(--sel);border-radius:3px;padding:0 3px}
+.ri .tg.via{border-color:#3ecf8e;color:#3ecf8e}
+.ri .d{flex:none;color:var(--muted)}
+.ri button{flex:none;background:none;border:1px solid transparent;border-radius:4px;color:var(--muted);padding:0 4px;font-size:12px}
+.ri button:hover{border-color:var(--line);color:var(--text)}
+.ri button.del:hover{color:var(--danger)}
+.item .addr{flex:none;background:none;border:1px solid var(--line);border-radius:4px;color:#3ecf8e;font-size:11px;padding:0 5px}
+.via-pin{width:18px;height:18px;border-radius:50%;background:#3ecf8e;color:#000;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px #000a}
 .route-pin{width:24px;height:24px;border-radius:50%;color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px #000a}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#000d;padding:8px 14px;border-radius:8px;display:none;z-index:50}
 #mobbar{display:none}
@@ -174,20 +196,25 @@ body.dragging iframe{pointer-events:none}
       <div class="rpt"><span class="lb">終點</span><span class="v" id="rB">未設定</span>
         <button class="btn" id="pickB" onclick="pickMode('B')" title="在地圖上點選終點">點地圖</button>
         <button class="btn" onclick="useRef('B')" title="使用目前搜尋的地點，若無則用我的位置">用搜尋／定位</button></div>
+      <div class="rpt"><span class="lb">途經</span><span class="v" id="rViaTxt" style="color:var(--muted)">無（可點鏡頭的「⤳」或地圖）</span>
+        <button class="btn" id="pickV" onclick="pickMode('V')" title="在地圖上點選途經點，路線會改為經過該處" disabled>＋點地圖</button></div>
+      <div class="chips" id="rVia"></div>
       <div class="row" style="margin-top:6px">
-        <select id="rBuf" title="鏡頭距離路線多遠以內才算沿線">
+        <select id="rBuf" title="鏡頭距離路線多遠以內才算沿線" onchange="rebuildList(true)">
           <option value="40">沿線 40 m</option><option value="80" selected>沿線 80 m</option><option value="150">沿線 150 m</option></select>
-        <select id="rMode" title="沿線鏡頭超過 16 個時的取法">
+        <select id="rMode" title="清單超過 16 個時，多畫面的取法" onchange="rebuildList(true)">
           <option value="even" selected>平均分布取 16</option><option value="first">從起點取 16</option></select>
       </div>
       <div class="row" style="margin-top:6px">
         <button class="btn primary" id="rGo" onclick="planRoute()" disabled>規劃路線並排入畫面</button>
         <button class="btn" onclick="clearRoute()">清除</button>
       </div>
+      <div class="chips" id="rAlt"></div>
+      <div class="status" id="rStatus">設定起點與終點後，依行車路線把沿途鏡頭依序排入多畫面（會取代目前的選取）。</div>
+      <div id="rList"></div>
       <div class="row" style="margin-top:6px">
         <button class="btn" id="rCsv" onclick="exportRouteCsv()" disabled>下載路線鏡頭清單 CSV</button>
       </div>
-      <div class="status" id="rStatus">設定起點與終點後，依行車路線把沿途鏡頭依序排入多畫面（會取代目前的選取）。</div>
     </section>
     <section>
       <h2>下載</h2>
@@ -264,9 +291,15 @@ map.on("load", async () => {
   map.addSource("acc",{type:"geojson",data:fc([])});
   map.addLayer({id:"acc",type:"fill",source:"acc",paint:{"fill-color":"#4f9cff","fill-opacity":.12}});
   map.addSource("route",{type:"geojson",data:fc([])});
-  map.addLayer({id:"route-casing",type:"line",source:"route",layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#000","line-width":8,"line-opacity":.5}});
-  map.addLayer({id:"route",type:"line",source:"route",filter:["!",["get","straight"]],layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#3ecf8e","line-width":4}});
-  map.addLayer({id:"route-straight",type:"line",source:"route",filter:["get","straight"],paint:{"line-color":"#3ecf8e","line-width":3,"line-dasharray":[2,2]}});
+  map.addLayer({id:"route-alt",type:"line",source:"route",filter:["!",["get","active"]],layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#8a9099","line-width":4,"line-opacity":.75}});
+  map.addLayer({id:"route-alt-label",type:"symbol",source:"route",filter:["!",["get","active"]],layout:{"symbol-placement":"line-center","text-field":["get","label"],"text-size":12},paint:{"text-color":"#fff","text-halo-color":"#555","text-halo-width":2}});
+  map.addLayer({id:"route-casing",type:"line",source:"route",filter:["get","active"],layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#000","line-width":8,"line-opacity":.5}});
+  map.addLayer({id:"route",type:"line",source:"route",filter:["all",["get","active"],["!",["get","straight"]]],layout:{"line-join":"round","line-cap":"round"},paint:{"line-color":"#3ecf8e","line-width":4}});
+  map.addLayer({id:"route-straight",type:"line",source:"route",filter:["all",["get","active"],["get","straight"]],paint:{"line-color":"#3ecf8e","line-width":3,"line-dasharray":[2,2]}});
+  map.addLayer({id:"route-alt-hit",type:"line",source:"route",filter:["!",["get","active"]],paint:{"line-color":"#000","line-width":16,"line-opacity":0.01}});
+  map.on("mouseenter","route-alt-hit",()=>{ if(!picking) map.getCanvas().style.cursor="pointer"; });
+  map.on("mouseleave","route-alt-hit",()=>{ if(!picking) map.getCanvas().style.cursor=""; });
+  map.on("click","route-alt-hit",e=>{ if(picking) return; if(map.queryRenderedFeatures(e.point,{layers:["cams"]}).length) return; chooseRoute(e.features[0].properties.idx); });
   map.addLayer({id:"cams",type:"symbol",source:"cams",layout:{
     "icon-image":["case",["get","sel"],"cam-sel","cam"],
     "icon-size":["interpolate",["linear"],["zoom"],11,.6,14,.95,18,1.25],
@@ -279,7 +312,8 @@ map.on("load", async () => {
   map.on("mouseleave","cams",()=>map.getCanvas().style.cursor="");
   map.on("click","cams",e=>{ if(picking) return; const id=e.features[0].properties.id; openPopup(cams.find(c=>c.id===id)); });
   map.on("click",e=>{ if(!picking) return; const k=picking; pickMode(null);
-    setRoutePt(k,{lat:e.lngLat.lat,lng:e.lngLat.lng,label:`地圖點 ${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`}); });
+    const pt={lat:e.lngLat.lat,lng:e.lngLat.lng,label:`地圖點 ${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`};
+    if(k==="V") addVia(pt); else setRoutePt(k,pt); });
   restoreSel();
   await loadFromApi();
 });
@@ -376,14 +410,16 @@ function showCounts(src){
 document.addEventListener("click",e=>{ if(!e.target.closest("#cnt")) document.getElementById("cnt")?.classList.remove("open"); });
 
 /* ===== 路線鏡頭 ===== */
-// 路線：OSRM 公開示範伺服器（OpenStreetMap 路網，汽車）；連不上時改以直線連接並標示為虛線
+// 路線：OSRM 公開示範伺服器（OpenStreetMap 路網，汽車）。無途經點時會要求替代路線（最多 3 條）。
+// 連不上時改以直線連接並標示為虛線
 const OSRM="https://router.project-osrm.org/route/v1/driving/";
-const RT={A:null,B:null,line:null,straight:false,hits:[],chosen:[],mk:{}};
+const RT={A:null,B:null,via:[],routes:[],ri:0,list:[],chosen:[],removed:new Set(),added:new Set(),mk:{},viaMk:[],total:0};
 let picking=null;
+const PICK_TXT={A:"起點",B:"終點",V:"途經點"};
 function pickMode(k){
-  picking=k; ["A","B"].forEach(x=>document.getElementById("pick"+x).classList.toggle("picking",picking===x));
+  picking=k; ["A","B","V"].forEach(x=>document.getElementById("pick"+x).classList.toggle("picking",picking===x));
   map.getCanvas().style.cursor=k?"crosshair":"";
-  if(k){ toast(`請在地圖上點選${k==="A"?"起點":"終點"}（Esc 取消）`); if(window.innerWidth<=820) document.getElementById("app").classList.remove("side"); }
+  if(k){ toast(`請在地圖上點選${PICK_TXT[k]}（Esc 取消）`); if(window.innerWidth<=820) document.getElementById("app").classList.remove("side"); }
 }
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&picking) pickMode(null); });
 function useRef(k){
@@ -391,69 +427,162 @@ function useRef(k){
   setRoutePt(k,{lat:a.lat,lng:a.lng,label:place?place.label:"我的位置"});
 }
 function setRoutePt(k,pt){
-  RT[k]=pt; document.getElementById("r"+k).textContent=pt.label; document.getElementById("r"+k).title=pt.label;
+  RT[k]=pt; const v=document.getElementById("r"+k); v.textContent=pt.label; v.title=pt.label;
   if(!RT.mk[k]){ const el=document.createElement("div"); el.className="route-pin"; el.style.background=k==="A"?"#2e9d5b":"#d6453d"; el.textContent=k==="A"?"起":"終";
     RT.mk[k]=new maplibregl.Marker({element:el}); }
   RT.mk[k].setLngLat([pt.lng,pt.lat]).addTo(map);
   document.getElementById("rGo").disabled=!(RT.A&&RT.B);
+  if(RT.routes.length&&RT.A&&RT.B) planRoute();          // 已有路線時自動重算
 }
+const activeLine=()=>RT.routes[RT.ri]?.line;
+
 // 平面近似（區域小，等距圓柱投影誤差可忽略）
 function toXY(lng,lat,lat0){ return [lng*111320*Math.cos(lat0*Math.PI/180), lat*110540]; }
-function routeMatch(line,buf){
-  const lat0=line[0][1], P=line.map(([x,y])=>toXY(x,y,lat0)); const cum=[0];
+function makeProj(line){
+  const lat0=line[0][1], P=line.map(([x,y])=>toXY(x,y,lat0)), cum=[0];
   for(let i=1;i<P.length;i++) cum.push(cum[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
-  // 先用外框篩選，減少計算量
   let [mnx,mny,mxx,mxy]=[1e9,1e9,-1e9,-1e9]; line.forEach(([x,y])=>{mnx=Math.min(mnx,x);mny=Math.min(mny,y);mxx=Math.max(mxx,x);mxy=Math.max(mxy,y);});
-  const pad=buf/100000*1.5, out=[];
-  for(const c of cams){
-    if(c.lng<mnx-pad||c.lng>mxx+pad||c.lat<mny-pad||c.lat>mxy+pad) continue;
-    const [cx,cy]=toXY(c.lng,c.lat,lat0); let bd=Infinity, ba=0;
+  const proj=(lng,lat)=>{ const [cx,cy]=toXY(lng,lat,lat0); let bd=Infinity, ba=0;
     for(let i=1;i<P.length;i++){ const [ax,ay]=P[i-1],[bx,by]=P[i], dx=bx-ax, dy=by-ay, L=dx*dx+dy*dy;
-      const t=L?Math.max(0,Math.min(1,((cx-ax)*dx+(cy-ay)*dy)/L)):0, px=ax+t*dx, py=ay+t*dy, d=Math.hypot(cx-px,cy-py);
+      const t=L?Math.max(0,Math.min(1,((cx-ax)*dx+(cy-ay)*dy)/L)):0, d=Math.hypot(cx-ax-t*dx,cy-ay-t*dy);
       if(d<bd){ bd=d; ba=cum[i-1]+t*Math.sqrt(L); } }
-    if(bd<=buf) out.push({c,along:ba,off:bd});
-  }
-  return {hits:out.sort((a,b)=>a.along-b.along), total:cum[cum.length-1]};
+    return {along:ba,off:bd}; };
+  return {proj,total:cum[cum.length-1],bbox:[mnx,mny,mxx,mxy]};
+}
+
+async function fetchRoutes(){
+  const pts=[RT.A,...RT.via,RT.B], coord=pts.map(p=>`${p.lng},${p.lat}`).join(";");
+  const alt=RT.via.length?"false":"3";   // OSRM 只在兩點間提供替代路線
+  try{
+    const r=await fetch(`${OSRM}${coord}?overview=full&geometries=geojson&alternatives=${alt}`);
+    if(!r.ok) throw new Error("HTTP "+r.status); const j=await r.json();
+    if(j.code!=="Ok"||!j.routes?.length) throw new Error(j.message||j.code);
+    return j.routes.map(x=>({line:x.geometry.coordinates,dur:x.duration,dist:x.distance,straight:false}));
+  }catch(e){ console.warn(e);
+    const line=pts.map(p=>[p.lng,p.lat]); return [{line,dur:null,dist:makeProj(line).total,straight:true}]; }
 }
 async function planRoute(){
   if(!(RT.A&&RT.B)) return;
   const st=document.getElementById("rStatus"); st.classList.remove("err"); st.textContent="規劃路線中…";
-  let line, straight=false, dur=null;
-  try{
-    const r=await fetch(`${OSRM}${RT.A.lng},${RT.A.lat};${RT.B.lng},${RT.B.lat}?overview=full&geometries=geojson`);
-    if(!r.ok) throw new Error("HTTP "+r.status); const j=await r.json();
-    if(j.code!=="Ok"||!j.routes?.length) throw new Error(j.message||j.code); line=j.routes[0].geometry.coordinates; dur=j.routes[0].duration;
-  }catch(e){ console.warn(e); line=[[RT.A.lng,RT.A.lat],[RT.B.lng,RT.B.lat]]; straight=true; }
-  RT.line=line; RT.straight=straight;
-  map.getSource("route").setData(fc([{type:"Feature",properties:{straight},geometry:{type:"LineString",coordinates:line}}]));
-  const buf=+document.getElementById("rBuf").value, {hits,total}=routeMatch(line,buf); RT.hits=hits; RT.total=total;
-  let chosen=hits;
-  if(hits.length>MAX){
-    if(document.getElementById("rMode").value==="first") chosen=hits.slice(0,MAX);
-    else{ chosen=[]; for(let i=0;i<MAX;i++) chosen.push(hits[Math.round(i*(hits.length-1)/(MAX-1))]); }
+  RT.routes=await fetchRoutes(); RT.ri=0;
+  document.getElementById("pickV").disabled=false;
+  drawRoutes(true); rebuildList(true); toggleSplit(true);
+  setTimeout(()=>{map.resize();fitRoute();},120);
+}
+function fitRoute(){ const b=new maplibregl.LngLatBounds(); RT.routes.forEach(r=>r.line.forEach(p=>b.extend(p))); if(!b.isEmpty()) map.fitBounds(b,{padding:60,maxZoom:16}); }
+const routeLabel=(r,i)=>`路線${i+1}　${fmtD(r.dist)}${r.dur?`・${Math.round(r.dur/60)} 分`:""}`;
+function drawRoutes(){
+  map.getSource("route")?.setData(fc(RT.routes.map((r,i)=>({type:"Feature",
+    properties:{idx:i,active:i===RT.ri,straight:r.straight,label:`路線${i+1}`},geometry:{type:"LineString",coordinates:r.line}}))
+    .sort((a,b)=>a.properties.active-b.properties.active)));
+  const el=document.getElementById("rAlt");
+  el.innerHTML=RT.routes.length>1?RT.routes.map((r,i)=>`<button class="chip ${i===RT.ri?"on":""}" data-i="${i}" title="改走這條路線">${routeLabel(r,i)}</button>`).join("")
+    +`<span class="status" style="margin:2px 0 0;width:100%">灰色線為替代路線，點選地圖上的灰線或上方按鈕即可切換</span>`:"";
+  el.querySelectorAll(".chip").forEach(c=>c.onclick=()=>chooseRoute(+c.dataset.i));
+}
+function chooseRoute(i){ if(i===RT.ri||!RT.routes[i]) return; RT.ri=i; drawRoutes(); rebuildList(true); toast(`已改走路線${i+1}`); }
+
+// 依目前路線重算鏡頭清單：沿線自動 − 已刪除 ＋ 手動加入，依行進方向排序
+function rebuildList(applyView){
+  const line=activeLine(); if(!line) return;
+  const buf=+document.getElementById("rBuf").value, {proj,total,bbox:[mnx,mny,mxx,mxy]}=makeProj(line), pad=buf/100000*1.5;
+  RT.total=total;
+  const viaIds=new Set(RT.via.map(v=>v.camId).filter(Boolean)), out=[], seen=new Set();
+  for(const c of cams){
+    const forced=RT.added.has(c.id)||viaIds.has(c.id);
+    if(!forced&&(RT.removed.has(c.id)||c.lng<mnx-pad||c.lng>mxx+pad||c.lat<mny-pad||c.lat>mxy+pad)) continue;
+    const {along,off}=proj(c.lng,c.lat);
+    if(forced||off<=buf){ out.push({c,along,off,manual:RT.added.has(c.id),via:viaIds.has(c.id)}); seen.add(c.id); }
+  }
+  RT.list=out.sort((a,b)=>a.along-b.along);
+  // 多畫面：清單 ≤16 全部排入；超過時手動／途經鏡頭必排，其餘依取法補足
+  let chosen=RT.list;
+  if(RT.list.length>MAX){
+    const must=RT.list.filter(h=>h.manual||h.via).slice(0,MAX), rest=RT.list.filter(h=>!(h.manual||h.via)), n=MAX-must.length;
+    let pick=[]; if(n>0){ if(document.getElementById("rMode").value==="first") pick=rest.slice(0,n);
+      else for(let i=0;i<n;i++) pick.push(rest[Math.round(i*(rest.length-1)/Math.max(1,n-1))]); }
+    const ids=new Set([...must,...pick].map(h=>h.c.id)); chosen=RT.list.filter(h=>ids.has(h.c.id));
   }
   RT.chosen=chosen.map(h=>h.c.id);
-  const b=new maplibregl.LngLatBounds(); line.forEach(p=>b.extend(p));
-  const fit=()=>map.fitBounds(b,{padding:60,maxZoom:16}); fit();
-  document.getElementById("rCsv").disabled=!hits.length;
-  if(!hits.length){ st.textContent=`路線約 ${fmtD(total)}，沿線 ${buf} 公尺內沒有鏡頭。可放寬沿線距離後再試。`+(straight?"（路線服務無法連線，暫以直線計算）":""); return; }
-  selected=[...RT.chosen]; afterSelChange(); toggleSplit(true); setTimeout(()=>{map.resize();fit();},120);
-  st.innerHTML=`路線約 ${fmtD(total)}${dur?`、車程約 ${Math.round(dur/60)} 分`:""}；沿線 ${buf} 公尺內共 <b>${hits.length}</b> 支鏡頭，已依行進順序排入 ${chosen.length} 個畫面`
-    +(hits.length>MAX?`（${document.getElementById("rMode").value==="first"?"從起點取前":"沿線平均取"} ${MAX} 個）`:"")
-    +(straight?`<br><span style="color:var(--danger)">路線服務無法連線，暫以起終點直線計算（虛線），結果僅供參考。</span>`:"");
+  if(applyView){ selected=[...RT.chosen]; afterSelChange(); }
+  renderRouteList(); updateRouteStatus();
+}
+function updateRouteStatus(){
+  const st=document.getElementById("rStatus"), r=RT.routes[RT.ri]; if(!r) return;
+  const buf=+document.getElementById("rBuf").value, nAuto=RT.list.filter(h=>!h.manual&&!h.via).length;
+  st.innerHTML=`${RT.routes.length>1?`路線${RT.ri+1}：`:""}約 ${fmtD(r.dist)}${r.dur?`、車程約 ${Math.round(r.dur/60)} 分`:""}；清單 <b>${RT.list.length}</b> 支`
+    +`（沿線 ${buf} m 內 ${nAuto}${RT.added.size?`、手動 ${RT.list.filter(h=>h.manual).length}`:""}${RT.via.some(v=>v.camId)?`、途經 ${RT.list.filter(h=>h.via).length}`:""}），多畫面排入 ${RT.chosen.length} 個`
+    +(r.straight?`<br><span style="color:var(--danger)">路線服務無法連線，暫以直線連接（虛線），結果僅供參考。</span>`:"")
+    +(!RT.list.length?`<br>沿線沒有鏡頭，可放寬沿線距離或手動加入。`:"");
+}
+function renderRouteList(){
+  const el=document.getElementById("rList"); el.classList.toggle("show",RT.list.length>0||RT.removed.size>0);
+  el.innerHTML=RT.list.map((h,i)=>{ const inv=selected.includes(h.c.id), n=selected.indexOf(h.c.id)+1;
+    return `<div class="ri ${inv?"inview":""}" data-id="${esc(h.c.id)}">
+      <span class="no" title="${inv?"多畫面第 "+n+" 格":"未排入多畫面"}">${inv?n:"–"}</span>
+      <span class="nm" title="${esc(h.c.name)}（點選在地圖上顯示）">${i+1}. ${esc(h.c.name)}</span>
+      ${h.via?'<span class="tg via">途經</span>':h.manual?'<span class="tg">手動</span>':""}
+      <span class="d">${fmtD(h.along)}</span>
+      <button data-a="view" title="${inv?"從多畫面移出":"排入多畫面"}">${inv?"▣":"□"}</button>
+      ${h.via?"":`<button data-a="via" title="路線改經此鏡頭">⤳</button>`}
+      <button class="del" data-a="del" title="從清單刪除">✕</button></div>`; }).join("")
+    +(RT.removed.size?`<div class="ri" style="color:var(--muted)">已刪除 ${RT.removed.size} 支<span style="flex:1"></span><button data-a="restore" title="把刪除的沿線鏡頭加回來">全部還原</button></div>`:"");
+  el.querySelectorAll(".ri[data-id]").forEach(row=>{ const id=row.dataset.id, c=cams.find(x=>x.id===id);
+    row.querySelector(".nm").onclick=()=>{ map.flyTo({center:[c.lng,c.lat],zoom:17}); openPopup(c); };
+    row.querySelector("[data-a=view]").onclick=()=>toggleSel(id);
+    row.querySelector("[data-a=via]")?.addEventListener("click",()=>addVia({lat:c.lat,lng:c.lng,label:c.name,camId:c.id}));
+    row.querySelector("[data-a=del]").onclick=()=>removeFromRoute(id); });
+  el.querySelector("[data-a=restore]")?.addEventListener("click",()=>{ RT.removed.clear(); rebuildList(true); });
+  document.getElementById("rCsv").disabled=!RT.list.length;
+}
+function removeFromRoute(id){
+  const vi=RT.via.findIndex(v=>v.camId===id); if(vi>=0){ removeVia(vi); return; }   // 途經鏡頭：取消途經
+  RT.added.delete(id); RT.removed.add(id); rebuildList(true);
+}
+function addToRoute(id){
+  if(!activeLine()){ toast("請先規劃路線"); return; }
+  RT.removed.delete(id); RT.added.add(id); rebuildList(true);
+  toast(`已加入「${cams.find(c=>c.id===id)?.name}」`);
+}
+const inRoute=id=>RT.list.some(h=>h.c.id===id);
+
+// 途經點：依在目前路線上的位置插入，路線重新規劃為經過該點
+function addVia(pt){
+  if(!(RT.A&&RT.B)){ toast("請先設定起點與終點"); return; }
+  if(pt.camId&&RT.via.some(v=>v.camId===pt.camId)) return;
+  const line=activeLine();
+  if(line){ const {proj}=makeProj(line), a=proj(pt.lng,pt.lat).along;
+    const idx=RT.via.findIndex(v=>proj(v.lng,v.lat).along>a); RT.via.splice(idx<0?RT.via.length:idx,0,pt); }
+  else RT.via.push(pt);
+  if(pt.camId) RT.removed.delete(pt.camId);
+  renderVia(); planRoute(); toast(`路線改經「${pt.label}」`);
+}
+function removeVia(i){ RT.via.splice(i,1); renderVia(); planRoute(); }
+function renderVia(){
+  RT.viaMk.forEach(m=>m.remove()); RT.viaMk=RT.via.map((v,i)=>{ const el=document.createElement("div"); el.className="via-pin"; el.textContent=i+1;
+    return new maplibregl.Marker({element:el}).setLngLat([v.lng,v.lat]).addTo(map); });
+  document.getElementById("rViaTxt").textContent=RT.via.length?`${RT.via.length} 個（依序經過）`:"無（可點鏡頭的「⤳」或地圖）";
+  const el=document.getElementById("rVia");
+  el.innerHTML=RT.via.map((v,i)=>`<span class="chip on">${i+1}. ${esc(v.label.length>14?v.label.slice(0,14)+"…":v.label)}<button data-i="${i}" title="取消這個途經點">✕</button></span>`).join("");
+  el.querySelectorAll("button").forEach(b=>b.onclick=()=>removeVia(+b.dataset.i));
 }
 function clearRoute(){
-  pickMode(null); RT.A=RT.B=RT.line=null; RT.hits=[]; RT.chosen=[];
-  Object.values(RT.mk).forEach(m=>m.remove()); map.getSource("route")?.setData(fc([]));
+  pickMode(null); Object.assign(RT,{A:null,B:null,via:[],routes:[],ri:0,list:[],chosen:[],total:0}); RT.removed.clear(); RT.added.clear();
+  Object.values(RT.mk).forEach(m=>m.remove()); renderVia(); map.getSource("route")?.setData(fc([]));
   ["A","B"].forEach(k=>document.getElementById("r"+k).textContent="未設定");
-  document.getElementById("rGo").disabled=true; document.getElementById("rCsv").disabled=true;
+  document.getElementById("rGo").disabled=true; document.getElementById("pickV").disabled=true;
+  document.getElementById("rAlt").innerHTML=""; renderRouteList();
   document.getElementById("rStatus").textContent="設定起點與終點後，依行車路線把沿途鏡頭依序排入多畫面（會取代目前的選取）。";
+  renderList(); updatePopupBtn();
 }
 function exportRouteCsv(){
-  if(!RT.hits.length) return;
-  plainSave(csv(RT.hits.map((h,i)=>({沿線順序:i+1,排入多畫面:RT.chosen.includes(h.c.id)?"是（#"+(RT.chosen.indexOf(h.c.id)+1)+"）":"",
+  if(!RT.list.length) return; const r=RT.routes[RT.ri];
+  plainSave(csv(RT.list.map((h,i)=>({沿線順序:i+1,來源:h.via?"途經點":h.manual?"手動加入":"沿線自動",
+    多畫面:selected.includes(h.c.id)?"第 "+(selected.indexOf(h.c.id)+1)+" 格":"",
     距起點沿線距離_公尺:Math.round(h.along),離路線_公尺:Math.round(h.off),鏡頭編號:h.c.id,鏡頭名稱:h.c.name,縣市:h.c.city,緯度:h.c.lat,經度:h.c.lng,影像網址:h.c.stream,
-    起點:RT.A.label,終點:RT.B.label,路線來源:RT.straight?"直線（路線服務無法連線）":"OSRM／OpenStreetMap 汽車路線",路線長度_公尺:Math.round(RT.total),匯出時間:human()}))),
+    起點:RT.A.label,終點:RT.B.label,途經:RT.via.map(v=>v.label).join(" → "),採用路線:`路線${RT.ri+1}／共 ${RT.routes.length} 條`,
+    路線來源:r.straight?"直線（路線服務無法連線）":"OSRM／OpenStreetMap 汽車路線",路線長度_公尺:Math.round(r.dist),
+    已刪除鏡頭:i===0?[...RT.removed].map(id=>cams.find(c=>c.id===id)?.name||id).join("、"):"",匯出時間:human()}))),
     `CCTV_路線鏡頭_${safe(RT.A.label)}_至_${safe(RT.B.label)}_${stamp()}.csv`);
 }
 
@@ -567,11 +696,11 @@ function renderList(){
     :(!q&&a?`<div class="status" style="padding:8px 14px">以「${esc(place?place.label:"我的位置")}」為中心，半徑 ${fmtD(R)}</div>`:"");
   el.innerHTML=hint+rows.slice(0,300).map(c=>`<div class="item ${selected.includes(c.id)?"sel":""}" data-id="${c.id}">
     <span class="ck"></span><span class="nm" title="${esc(c.name)}">${esc(c.name)}</span>
-    <span class="d">${c.dist!=null?fmtD(c.dist):""}</span></div>`).join("")
+    <span class="d">${c.dist!=null?fmtD(c.dist):""}</span>${RT.routes.length&&!inRoute(c.id)?`<button class="addr" title="加入路線鏡頭清單">＋路線</button>`:""}</div>`).join("")
     +(rows.length>300?`<div class="status" style="padding:8px 14px">僅顯示前 300 筆，請輸入關鍵字縮小範圍。</div>`:"")
     +(!rows.length&&(q||a)?`<div class="status" style="padding:8px 14px">沒有符合的監視器。</div>`:"");
   el.querySelectorAll(".item").forEach(it=>{
-    it.onclick=e=>{const c=cams.find(x=>x.id===it.dataset.id);toggleSel(c.id);};
+    it.onclick=e=>{ if(e.target.closest(".addr")){ addToRoute(it.dataset.id); return; } toggleSel(it.dataset.id); };
     it.ondblclick=()=>{const c=cams.find(x=>x.id===it.dataset.id);map.flyTo({center:[c.lng,c.lat],zoom:17});openPopup(c);};
   });
 }
@@ -589,7 +718,7 @@ function clearAll(){selected=[];afterSelChange();}
 function afterSelChange(){
   document.getElementById("selCount").textContent=selected.length;
   try{localStorage.setItem("cctv-sel",JSON.stringify(selected));}catch(e){}
-  refreshLayer(); renderList(); renderTiles(); updatePopupBtn();
+  refreshLayer(); renderList(); renderTiles(); updatePopupBtn(); if(RT.list.length) renderRouteList();
   if(selected.length && !document.getElementById("app").classList.contains("split") && window.innerWidth>820) toggleSplit(true);
 }
 function restoreSel(){try{selected=JSON.parse(localStorage.getItem("cctv-sel")||"[]");}catch(e){selected=[];}
@@ -603,7 +732,8 @@ function openPopup(c){
   box.innerHTML=`<h3>${esc(c.name)}</h3><div class="v"></div>
     <div class="row"><button class="btn primary" id="ppBtn"></button>
     <a class="btn" href="${esc(c.stream)}" target="_blank" rel="noopener" style="text-decoration:none">新分頁</a>
-    <span class="status" style="margin:0">${ref()?fmtD(dist(ref(),c)):""}</span></div>`;
+    <span class="status" style="margin:0">${ref()?fmtD(dist(ref(),c)):""}</span></div>
+    <div class="row" id="ppRoute"></div>`;
   box.dataset.id=c.id;
   popupPlayer=mountPlayer(box.querySelector(".v"),c);
   popup=new maplibregl.Popup({maxWidth:"320px",offset:14}).setLngLat([c.lng,c.lat]).setDOMContent(box).addTo(map);
@@ -615,6 +745,13 @@ function updatePopupBtn(){
   const b=document.getElementById("ppBtn"); if(!b) return;
   const id=b.closest(".pp").dataset.id, on=selected.includes(id);
   b.textContent=on?`移出多畫面（#${selected.indexOf(id)+1}）`:"加入多畫面";
+  const r=document.getElementById("ppRoute"); if(!r) return;
+  if(!RT.routes.length){ r.innerHTML=""; return; }
+  const c=cams.find(x=>x.id===id), isVia=RT.via.some(v=>v.camId===id), inR=inRoute(id);
+  r.innerHTML=`<button class="btn" data-a="r">${inR?"從路線清單刪除":"加入路線清單"}</button>`
+    +`<button class="btn" data-a="v">${isVia?"取消途經此處":"⤳ 路線改經此處"}</button>`;
+  r.querySelector("[data-a=r]").onclick=()=>{ inR?removeFromRoute(id):addToRoute(id); updatePopupBtn(); };
+  r.querySelector("[data-a=v]").onclick=()=>{ isVia?removeVia(RT.via.findIndex(v=>v.camId===id)):addVia({lat:c.lat,lng:c.lng,label:c.name,camId:id}); };
 }
 
 /* ===== 播放器：依網址格式自動判斷 ===== */
