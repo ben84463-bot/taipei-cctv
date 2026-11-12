@@ -51,7 +51,9 @@ aside section{flex:none}
 #app.split #grid{display:flex}
 #grid .gh{height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;border-bottom:1px solid var(--line);background:#1a1b1e}
 #grid .gh .sp{flex:1}
-#tiles{flex:1;display:grid;gap:4px;padding:4px;min-height:0;grid-auto-rows:1fr}
+#grid .gh{flex-wrap:wrap;height:auto;min-height:40px;padding:4px 10px}
+#grid.pfs{position:fixed;inset:0;z-index:200;width:auto!important}
+#tiles{flex:1;display:grid;gap:4px;padding:4px;min-height:0;grid-auto-rows:1fr;grid-auto-flow:row dense}
 .tile{position:relative;background:#000;border-radius:4px;overflow:hidden;min-height:0}
 .tile video,.tile img,.tile iframe{width:100%;height:100%;object-fit:contain;display:block;border:0;background:#000}
 .tile .cap{position:absolute;left:0;right:0;top:0;display:flex;gap:6px;align-items:center;padding:4px 6px;
@@ -74,6 +76,16 @@ aside section{flex:none}
 .tile.recording .rec{display:block}
 .tile.recording{outline:2px solid #d22;outline-offset:-2px}
 .tile:fullscreen{border-radius:0}
+.tile .rs{position:absolute;right:0;bottom:0;width:22px;height:22px;z-index:4;cursor:nwse-resize;
+  background:linear-gradient(135deg,transparent 50%,#ffffffaa 50%,#ffffffaa 58%,transparent 58%,transparent 70%,#ffffffaa 70%,#ffffffaa 78%,transparent 78%);opacity:.55}
+.tile:hover .rs{opacity:1}
+.tile.resizing{outline:2px dashed var(--accent);outline-offset:-2px;z-index:5}
+.tile .span{position:absolute;right:26px;bottom:4px;z-index:4;background:#000b;border-radius:3px;padding:0 5px;font-size:11px;color:var(--accent);display:none}
+.tile.resizing .span,.tile.spanned:hover .span{display:block}
+.tile.pfs{position:fixed!important;inset:0;z-index:200;border-radius:0}
+#tiles.hasfocus .tile.focus{grid-column:1/-1!important;grid-row:1/-1!important}
+.tile:fullscreen .rs,.tile.pfs .rs,.tile.focus .rs{display:none}
+#grid:fullscreen{width:100%!important}
 #splitter{width:7px;flex:none;cursor:col-resize;background:var(--line);display:none;position:relative}
 #splitter::after{content:"";position:absolute;top:50%;left:2px;width:3px;height:36px;margin-top:-18px;border-radius:2px;background:#777}
 #splitter:hover,#splitter.drag{background:var(--accent)}
@@ -252,7 +264,9 @@ body.dragging iframe{pointer-events:none}
     <div id="splitter" title="拖曳調整地圖與畫面的大小"></div>
     <div id="grid">
       <div class="gh"><span id="gridTitle">多畫面</span><span class="sp"></span>
-        <span class="status" style="margin:0">點畫面放大／縮回・雙擊全螢幕・Esc 返回</span>
+        <span class="status" style="margin:0">點畫面放大／縮回・拖曳右下角 ◢ 調整大小・⛶ 全螢幕・Esc 返回</span>
+        <button class="btn" onclick="resetSpans()" title="把所有拉大的畫面恢復成一格">恢復格子大小</button>
+        <button class="btn" onclick="toggleFS(document.getElementById('grid'))" title="多畫面全螢幕">⛶ 全螢幕</button>
         <button class="btn" onclick="reloadAll()">全部重新整理</button>
         <button class="btn" onclick="toggleSplit(false)">收合</button></div>
       <div id="tiles"></div>
@@ -829,25 +843,29 @@ function renderTiles(){
     let t=box.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
     if(!t){
       t=document.createElement("div");t.className="tile";t.dataset.id=id;
-      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
-        <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大／縮回">⤢</button><button data-a="snap" title="截圖下載">📷</button><button data-a="recd" title="錄影下載">⏺</button>
+      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="span"></div><div class="rs" title="拖曳調整畫面大小（雙擊恢復一格）"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
+        <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大／縮回">⤢</button><button data-a="fs" title="全螢幕">⛶</button><button data-a="snap" title="截圖下載">📷</button><button data-a="recd" title="錄影下載">⏺</button>
         <button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
       t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
       t.querySelector("[data-a=open]").href=c.stream||"#"; t.title=c.stream||"";
       t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
       t.querySelector("[data-a=big]").onclick=()=>toggleFocus(t);
-      t.querySelector(".hit").onclick=()=>toggleFocus(t);
-      t.querySelector(".hit").ondblclick=()=>{ (document.fullscreenElement?document.exitFullscreen():t.requestFullscreen?.())?.catch?.(()=>{}); };
+      { let ct=null; const hit=t.querySelector(".hit");
+        hit.onclick=()=>{ clearTimeout(ct); ct=setTimeout(()=>toggleFocus(t),230); };      // 單擊：放大／縮回
+        hit.ondblclick=()=>{ clearTimeout(ct); toggleFS(t); }; }                            // 雙擊：全螢幕
+      t.querySelector("[data-a=fs]").onclick=()=>toggleFS(t);
+      initResize(t,id);
       t.querySelector("[data-a=snap]").onclick=()=>snapTile(id);
       t.querySelector("[data-a=recd]").onclick=()=>recordTile(id);
       t.querySelector("[data-a=loc]").onclick=()=>{ if(window.innerWidth<=820) toggleSplit(false); map.flyTo({center:[c.lng,c.lat],zoom:17}); };
       players.set(id,mountPlayer(t.querySelector(".v"),c));
     }
-    t.querySelector(".no").textContent=i+1; t.style.order=i; box.appendChild(t);
+    t.querySelector(".no").textContent=i+1; t.style.order=i; applySpan(t,id); box.appendChild(t);
   });
   const cols=layout(selected.length);
   box.style.gridTemplateColumns=`repeat(${cols},1fr)`;
-  box.style.gridTemplateRows=`repeat(${Math.ceil(selected.length/cols)},1fr)`;
+  box.style.gridTemplateRows="";   // 列數由內容（含拉大的畫面）自動決定，各列平分高度
+  box.querySelectorAll(".tile").forEach(t=>applySpan(t,t.dataset.id));
 }
 function reloadAll(){ for(const id of selected){const t=document.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
   const c=cams.find(x=>x.id===id); players.get(id)?.(); players.set(id,mountPlayer(t.querySelector(".v"),c)); } }
@@ -860,6 +878,51 @@ function toggleSplit(force){
   setTimeout(()=>{map.resize();renderTiles();},50);
 }
 function toggleSide(){document.getElementById("app").classList.toggle("side");}
+/* ===== 拖曳調整畫面大小（以格為單位，最大 4×4）／全螢幕 ===== */
+const spans=new Map();   // id -> [欄數, 列數]
+try{ Object.entries(JSON.parse(localStorage.getItem("cctv-spans")||"{}")).forEach(([k,v])=>spans.set(k,v)); }catch(e){}
+const saveSpans=()=>{ try{ localStorage.setItem("cctv-spans",JSON.stringify(Object.fromEntries(spans))); }catch(e){} };
+function applySpan(t,id){
+  const cols=(getComputedStyle(document.getElementById("tiles")).gridTemplateColumns.split(" ").length)||1;
+  const [c,r]=spans.get(id)||[1,1], cc=Math.min(c,cols);
+  t.style.gridColumn=cc>1?`span ${cc}`:""; t.style.gridRow=r>1?`span ${r}`:"";
+  t.classList.toggle("spanned",cc>1||r>1); t.querySelector(".span").textContent=`${cc}×${r} 格`;
+}
+function initResize(t,id){
+  const h=t.querySelector(".rs");
+  h.addEventListener("dblclick",e=>{ e.stopPropagation(); spans.delete(id); saveSpans(); renderTiles(); });
+  h.addEventListener("pointerdown",e=>{
+    e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId);
+    const box=document.getElementById("tiles"), cols=getComputedStyle(box).gridTemplateColumns.split(" ").length;
+    const r0=t.getBoundingClientRect(), [c0,w0]=spans.get(id)||[1,1], gap=4;
+    const cw=(r0.width+gap)/Math.min(c0,cols), rh=(r0.height+gap)/w0;     // 單格寬高
+    t.classList.add("resizing"); document.body.classList.add("dragging");
+    const move=ev=>{
+      const c=Math.max(1,Math.min(cols,Math.round((ev.clientX-r0.left+gap)/cw)));
+      const r=Math.max(1,Math.min(4,Math.round((ev.clientY-r0.top+gap)/rh)));
+      const cur=spans.get(id)||[1,1]; if(cur[0]===c&&cur[1]===r) return;
+      if(c===1&&r===1) spans.delete(id); else spans.set(id,[c,r]); applySpan(t,id);
+    };
+    const up=()=>{ h.removeEventListener("pointermove",move); h.removeEventListener("pointerup",up); h.removeEventListener("pointercancel",up);
+      t.classList.remove("resizing"); document.body.classList.remove("dragging"); saveSpans(); };
+    h.addEventListener("pointermove",move); h.addEventListener("pointerup",up); h.addEventListener("pointercancel",up);
+  });
+}
+function resetSpans(){ spans.clear(); saveSpans(); renderTiles(); }
+// 全螢幕：支援瀏覽器原生全螢幕；不支援的裝置（如 iPhone Safari）改為鋪滿視窗
+function toggleFS(el){
+  const fsEl=document.fullscreenElement||document.webkitFullscreenElement;
+  if(fsEl){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); return; }
+  if(document.querySelector(".pfs")){ document.querySelectorAll(".pfs").forEach(x=>x.classList.remove("pfs")); return; }
+  const req=el.requestFullscreen||el.webkitRequestFullscreen;
+  if(req){ try{ const p=req.call(el); p?.catch?.(()=>el.classList.add("pfs")); }catch(e){ el.classList.add("pfs"); }
+    // 部分環境（內嵌預覽、權限限制）不回應全螢幕請求：1 秒內未進入就改為鋪滿視窗
+    setTimeout(()=>{ if(!(document.fullscreenElement||document.webkitFullscreenElement)&&!document.querySelector(".pfs")) el.classList.add("pfs"); },1000); }
+  else el.classList.add("pfs");
+}
+document.addEventListener("fullscreenchange",()=>setTimeout(renderTiles,60));
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") document.querySelectorAll(".pfs").forEach(x=>x.classList.remove("pfs")); });
+
 /* ===== 放大 ===== */
 function toggleFocus(t){
   const box=document.getElementById("tiles"), on=!t.classList.contains("focus");
