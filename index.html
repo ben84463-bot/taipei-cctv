@@ -76,13 +76,16 @@ aside section{flex:none}
 .tile.recording .rec{display:block}
 .tile.recording{outline:2px solid #d22;outline-offset:-2px}
 .tile:fullscreen{border-radius:0}
-.tile .rs{position:absolute;right:0;bottom:0;width:22px;height:22px;z-index:4;cursor:nwse-resize;
+.tile .rs{position:absolute;right:0;bottom:0;width:30px;height:30px;z-index:6;cursor:nwse-resize;touch-action:none;
   background:linear-gradient(135deg,transparent 50%,#ffffffaa 50%,#ffffffaa 58%,transparent 58%,transparent 70%,#ffffffaa 70%,#ffffffaa 78%,transparent 78%);opacity:.55}
 .tile:hover .rs{opacity:1}
 .tile.resizing{outline:2px dashed var(--accent);outline-offset:-2px;z-index:5}
 .tile .span{position:absolute;right:26px;bottom:4px;z-index:4;background:#000b;border-radius:3px;padding:0 5px;font-size:11px;color:var(--accent);display:none}
-.tile.resizing .span,.tile.spanned:hover .span{display:block}
+.tile.resizing .span{display:block}
 .tile.pfs{position:fixed!important;inset:0;z-index:200;border-radius:0}
+.tile{container-type:size}
+@container (max-width:300px){ .tile .cap [data-a=loc],.tile .cap [data-a=re],.tile .cap [data-a=open],.tile .cap [data-a=recd]{display:none} }
+@container (max-width:200px){ .tile .cap [data-a=snap],.tile .cap [data-a=big]{display:none} .tile .cap .n{display:none} }
 #tiles.hasfocus .tile.focus{grid-column:1/-1!important;grid-row:1/-1!important}
 .tile:fullscreen .rs,.tile.pfs .rs,.tile.focus .rs{display:none}
 #grid:fullscreen{width:100%!important}
@@ -264,8 +267,8 @@ body.dragging iframe{pointer-events:none}
     <div id="splitter" title="拖曳調整地圖與畫面的大小"></div>
     <div id="grid">
       <div class="gh"><span id="gridTitle">多畫面</span><span class="sp"></span>
-        <span class="status" style="margin:0">點畫面放大／縮回・拖曳右下角 ◢ 調整大小・⛶ 全螢幕・Esc 返回</span>
-        <button class="btn" onclick="resetSpans()" title="把所有拉大的畫面恢復成一格">恢復格子大小</button>
+        <span class="status" style="margin:0">點畫面放大／縮回・拖曳右下角調整大小・⛶ 全螢幕・Esc 返回</span>
+        <button class="btn" onclick="resetSpans()" title="把拖曳調整過的畫面恢復成平均大小">恢復平均大小</button>
         <button class="btn" onclick="toggleFS(document.getElementById('grid'))" title="多畫面全螢幕">⛶ 全螢幕</button>
         <button class="btn" onclick="reloadAll()">全部重新整理</button>
         <button class="btn" onclick="toggleSplit(false)">收合</button></div>
@@ -837,22 +840,20 @@ function renderTiles(){
   for(const [id,clean] of players){ if(!selected.includes(id)){recorders.get(id)?.stop();clean();players.delete(id);box.querySelector(`[data-id="${CSS.escape(id)}"]`)?.remove();} }
   box.querySelector(".empty")?.remove();
   if(!box.querySelector(".tile.focus")) box.classList.remove("hasfocus");
-  if(!selected.length){box.style.gridTemplateColumns="1fr";box.innerHTML=`<div class="empty">在地圖點選監視器並按「加入多畫面」，<br>或按左側清單、「加入最近的畫面」。最多 16 個。</div>`;return;}
+  if(!selected.length){box.style.gridTemplateColumns="1fr";box.style.gridTemplateRows="1fr";gw.cols=0;box.innerHTML=`<div class="empty">在地圖點選監視器並按「加入多畫面」，<br>或按左側清單、「加入最近的畫面」。最多 16 個。</div>`;return;}
   selected.forEach((id,i)=>{
     const c=cams.find(x=>x.id===id); if(!c) return;
     let t=box.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
     if(!t){
       t=document.createElement("div");t.className="tile";t.dataset.id=id;
-      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="span"></div><div class="rs" title="拖曳調整畫面大小（雙擊恢復一格）"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
+      t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="span"></div><div class="rs" title="拖曳調整畫面大小（雙擊恢復）"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
         <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大／縮回">⤢</button><button data-a="fs" title="全螢幕">⛶</button><button data-a="snap" title="截圖下載">📷</button><button data-a="recd" title="錄影下載">⏺</button>
         <button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
       t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
       t.querySelector("[data-a=open]").href=c.stream||"#"; t.title=c.stream||"";
       t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
       t.querySelector("[data-a=big]").onclick=()=>toggleFocus(t);
-      { let ct=null; const hit=t.querySelector(".hit");
-        hit.onclick=()=>{ clearTimeout(ct); ct=setTimeout(()=>toggleFocus(t),230); };      // 單擊：放大／縮回
-        hit.ondblclick=()=>{ clearTimeout(ct); toggleFS(t); }; }                            // 雙擊：全螢幕
+      t.querySelector(".hit").onclick=()=>toggleFocus(t);                                 // 點一下：放大／縮回
       t.querySelector("[data-a=fs]").onclick=()=>toggleFS(t);
       initResize(t,id);
       t.querySelector("[data-a=snap]").onclick=()=>snapTile(id);
@@ -860,12 +861,10 @@ function renderTiles(){
       t.querySelector("[data-a=loc]").onclick=()=>{ if(window.innerWidth<=820) toggleSplit(false); map.flyTo({center:[c.lng,c.lat],zoom:17}); };
       players.set(id,mountPlayer(t.querySelector(".v"),c));
     }
-    t.querySelector(".no").textContent=i+1; t.style.order=i; applySpan(t,id); box.appendChild(t);
+    t.querySelector(".no").textContent=i+1; t.style.order=i; box.appendChild(t);
   });
   const cols=layout(selected.length);
-  box.style.gridTemplateColumns=`repeat(${cols},1fr)`;
-  box.style.gridTemplateRows="";   // 列數由內容（含拉大的畫面）自動決定，各列平分高度
-  box.querySelectorAll(".tile").forEach(t=>applySpan(t,t.dataset.id));
+  applyWeights();
 }
 function reloadAll(){ for(const id of selected){const t=document.querySelector(`.tile[data-id="${CSS.escape(id)}"]`);
   const c=cams.find(x=>x.id===id); players.get(id)?.(); players.set(id,mountPlayer(t.querySelector(".v"),c)); } }
@@ -878,37 +877,48 @@ function toggleSplit(force){
   setTimeout(()=>{map.resize();renderTiles();},50);
 }
 function toggleSide(){document.getElementById("app").classList.toggle("side");}
-/* ===== 拖曳調整畫面大小（以格為單位，最大 4×4）／全螢幕 ===== */
-const spans=new Map();   // id -> [欄數, 列數]
-try{ Object.entries(JSON.parse(localStorage.getItem("cctv-spans")||"{}")).forEach(([k,v])=>spans.set(k,v)); }catch(e){}
-const saveSpans=()=>{ try{ localStorage.setItem("cctv-spans",JSON.stringify(Object.fromEntries(spans))); }catch(e){} };
-function applySpan(t,id){
-  const cols=(getComputedStyle(document.getElementById("tiles")).gridTemplateColumns.split(" ").length)||1;
-  const [c,r]=spans.get(id)||[1,1], cc=Math.min(c,cols);
-  t.style.gridColumn=cc>1?`span ${cc}`:""; t.style.gridRow=r>1?`span ${r}`:"";
-  t.classList.toggle("spanned",cc>1||r>1); t.querySelector(".span").textContent=`${cc}×${r} 格`;
+/* ===== 拖曳調整畫面大小 =====
+   作法：每一欄、每一列有各自的寬高比重。拖曳某格右下角時，調整它所在欄的寬度與所在列的高度，
+   該格會連續放大或縮小，其他畫面同步縮放、全部仍保持可見。 */
+let gw={cols:0,rows:0,c:[],r:[]};
+function gridDims(){ const n=selected.length, cols=layout(n); return [cols,Math.max(1,Math.ceil(n/cols))]; }
+function applyWeights(){
+  const box=document.getElementById("tiles"), [cols,rows]=gridDims();
+  if(gw.cols!==cols||gw.rows!==rows) gw={cols,rows,c:Array(cols).fill(1),r:Array(rows).fill(1)};
+  box.style.gridTemplateColumns=gw.c.map(w=>`minmax(0,${w.toFixed(3)}fr)`).join(" ");
+  box.style.gridTemplateRows=gw.r.map(w=>`minmax(0,${w.toFixed(3)}fr)`).join(" ");
 }
+function applySpan(){}   // 保留介面相容
 function initResize(t,id){
   const h=t.querySelector(".rs");
-  h.addEventListener("dblclick",e=>{ e.stopPropagation(); spans.delete(id); saveSpans(); renderTiles(); });
+  h.addEventListener("click",e=>e.stopPropagation());
+  h.addEventListener("dblclick",e=>{ e.stopPropagation(); const i=selected.indexOf(id);
+    gw.c[i%gw.cols]=1; gw.r[Math.floor(i/gw.cols)]=1; applyWeights(); });
   h.addEventListener("pointerdown",e=>{
-    e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId);
-    const box=document.getElementById("tiles"), cols=getComputedStyle(box).gridTemplateColumns.split(" ").length;
-    const r0=t.getBoundingClientRect(), [c0,w0]=spans.get(id)||[1,1], gap=4;
-    const cw=(r0.width+gap)/Math.min(c0,cols), rh=(r0.height+gap)/w0;     // 單格寬高
+    e.preventDefault(); e.stopPropagation();
+    const box=document.getElementById("tiles"); if(box.classList.contains("hasfocus")) return;
+    applyWeights(); const i=selected.indexOf(id), ci=i%gw.cols, ri=Math.floor(i/gw.cols);
+    if(gw.cols===1&&gw.rows===1){ toast("只有一個畫面時已是最大，可拖曳地圖與多畫面之間的分隔線"); return; }
+    h.setPointerCapture(e.pointerId);
+    const cs=getComputedStyle(box), gap=parseFloat(cs.columnGap)||4, padX=parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight), padY=parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom);
+    const W=box.clientWidth-padX-gap*(gw.cols-1), H=box.clientHeight-padY-gap*(gw.rows-1), MIN=70;
     t.classList.add("resizing"); document.body.classList.add("dragging");
+    const lab=t.querySelector(".span");
     const move=ev=>{
-      const c=Math.max(1,Math.min(cols,Math.round((ev.clientX-r0.left+gap)/cw)));
-      const r=Math.max(1,Math.min(4,Math.round((ev.clientY-r0.top+gap)/rh)));
-      const cur=spans.get(id)||[1,1]; if(cur[0]===c&&cur[1]===r) return;
-      if(c===1&&r===1) spans.delete(id); else spans.set(id,[c,r]); applySpan(t,id);
+      const r0=t.getBoundingClientRect();
+      if(gw.cols>1){ const tw=Math.max(MIN,Math.min(W-MIN*(gw.cols-1),ev.clientX-r0.left));
+        const others=gw.c.reduce((a,w,k)=>k===ci?a:a+w,0); gw.c[ci]=tw*others/(W-tw); }
+      if(gw.rows>1){ const th=Math.max(MIN,Math.min(H-MIN*(gw.rows-1),ev.clientY-r0.top));
+        const others=gw.r.reduce((a,w,k)=>k===ri?a:a+w,0); gw.r[ri]=th*others/(H-th); }
+      applyWeights();
+      const r1=t.getBoundingClientRect(); lab.textContent=`${Math.round(r1.width)}×${Math.round(r1.height)}`;
     };
     const up=()=>{ h.removeEventListener("pointermove",move); h.removeEventListener("pointerup",up); h.removeEventListener("pointercancel",up);
-      t.classList.remove("resizing"); document.body.classList.remove("dragging"); saveSpans(); };
+      t.classList.remove("resizing"); document.body.classList.remove("dragging"); };
     h.addEventListener("pointermove",move); h.addEventListener("pointerup",up); h.addEventListener("pointercancel",up);
   });
 }
-function resetSpans(){ spans.clear(); saveSpans(); renderTiles(); }
+function resetSpans(){ gw.cols=0; applyWeights(); }
 // 全螢幕：支援瀏覽器原生全螢幕；不支援的裝置（如 iPhone Safari）改為鋪滿視窗
 function toggleFS(el){
   const fsEl=document.fullscreenElement||document.webkitFullscreenElement;
