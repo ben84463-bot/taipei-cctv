@@ -68,6 +68,13 @@ aside section{flex:none}
 .tile .v{z-index:0}
 .tile .hit{position:absolute;inset:0;z-index:1;cursor:zoom-in}
 .tile .cap{z-index:3}
+#shareBox{position:fixed;inset:0;background:#0008;z-index:9999;display:flex;align-items:center;justify-content:center}
+#shareBox .sb{background:var(--panel,#1b2230);color:inherit;border:1px solid #fff2;border-radius:10px;padding:14px;width:min(520px,92vw);display:flex;flex-direction:column;gap:6px;font-size:13px}
+#shareBox label{opacity:.75;font-size:12px;margin-top:4px}
+#shareBox .r{display:flex;gap:6px}#shareBox input{flex:1;min-width:0;font-size:12px;padding:5px 6px;border-radius:5px;border:1px solid #fff3;background:#0004;color:inherit}
+
+.btn.warn{background:#c62828!important;color:#fff!important;border-color:#c62828!important}
+
 .tile .msg{z-index:2}
 #tiles.hasfocus{grid-template-columns:1fr!important;grid-template-rows:1fr!important}
 #tiles.hasfocus .tile:not(.focus){display:none}
@@ -284,6 +291,7 @@ body.dragging iframe{pointer-events:none}
         <button class="btn" onclick="resetSpans()" title="把拖曳調整過的畫面恢復成平均大小">恢復平均大小</button>
         <button class="btn" onclick="toggleFS(document.getElementById('grid'))" title="多畫面全螢幕">⛶ 全螢幕</button>
         <button class="btn" onclick="reloadAll()">全部重新整理</button>
+        <button class="btn" id="clrBtn" onclick="clearAllConfirm(this)" title="移除多畫面中的所有畫面（按兩次確認）">🗑 全部刪除</button>
         <button class="btn" onclick="toggleSplit(false)">收合</button></div>
       <div id="tiles"></div>
     </div>
@@ -464,6 +472,7 @@ function mergeAll(final){
   }
   cams=out;
   if(final) selected=selected.filter(id=>cams.some(c=>c.id===id));
+  trySharedCam(final);
   showCounts(); refreshLayer(); renderList(); renderTiles();
   if(RT.routes?.length) rebuildList(false);
 }
@@ -875,6 +884,50 @@ function toggleSel(id){
   afterSelChange(); return true;
 }
 function clearAll(){selected=[];afterSelChange();}
+
+/* ===== 分享：複製可直接開啟此畫面的連結 ===== */
+function shareUrl(c){ return location.href.split("#")[0]+"#cam="+encodeURIComponent(c.id)+"&ll="+c.lat.toFixed(5)+","+c.lng.toFixed(5); }
+async function copyText(s){
+  try{ await navigator.clipboard.writeText(s); return true; }catch(e){}
+  try{ const ta=document.createElement("textarea"); ta.value=s; ta.style.cssText="position:fixed;opacity:0"; document.body.appendChild(ta); ta.select();
+    const ok=document.execCommand("copy"); ta.remove(); return ok; }catch(e){ return false; }
+}
+function shareCam(c){
+  if(!c) return; const src=c.link||c.stream||"";
+  if(!src){ toast("這個鏡頭沒有可分享的影像原始連結"); return; }
+  document.getElementById("shareBox")?.remove();
+  const d=document.createElement("div"); d.id="shareBox";
+  d.innerHTML=`<div class="sb"><b>分享「${esc(c.name)}」</b>
+    <label>影像原始連結（直接開啟該機關的影像）</label><div class="r"><input readonly value="${esc(src)}"><button class="btn primary" data-c="0">複製</button></div>
+    <div style="text-align:right;margin-top:6px"><button class="btn" data-c="x">關閉</button></div></div>`;
+  document.body.appendChild(d);
+  const inp=d.querySelector("input"), cb=d.querySelector('button[data-c="0"]');
+  d.querySelector('button[data-c="x"]').onclick=()=>d.remove();
+  cb.onclick=async()=>{ inp.select(); const ok=await copyText(inp.value); cb.textContent=ok?"已複製 ✓":"請按 Ctrl+C";
+    toast(ok?"已複製影像原始連結":"無法自動複製，已幫你選取文字，請按 Ctrl+C（手機長按複製）"); };
+  d.onclick=e=>{ if(e.target===d) d.remove(); };
+  copyText(src).then(ok=>{ if(ok){ cb.textContent="已複製 ✓"; toast("已複製影像原始連結"); } else inp.select(); });
+}
+// 開啟分享連結：等鏡頭清單載入後，把該鏡頭放到多畫面第一格並移到地圖位置
+let sharedReq=(()=>{ const m=location.hash.match(/cam=([^&]+)(?:&ll=([-\d.]+),([-\d.]+))?/); return m?{id:decodeURIComponent(m[1]),lat:+m[2],lng:+m[3]}:null; })();
+function trySharedCam(final){
+  if(!sharedReq) return;
+  let c=cams.find(x=>x.id===sharedReq.id);
+  if(!c&&isFinite(sharedReq.lat)){ let best=null,bd=60; for(const x of cams){ const dd=dist(x,sharedReq); if(dd<bd){bd=dd;best=x;} } c=best; }
+  if(!c){ if(final){ toast("找不到分享的鏡頭（可能已下線或尚未載入）"); sharedReq=null; } return; }
+  sharedReq=null; history.replaceState(null,"",location.href.split("#")[0]);
+  selected=[c.id,...selected.filter(id=>id!==c.id)].slice(0,MAX); afterSelChange();
+  map.jumpTo({center:[c.lng,c.lat],zoom:15}); toast("已開啟分享的畫面："+c.name);
+}
+
+function clearAllConfirm(b){
+  if(!selected.length){ toast("多畫面目前沒有畫面"); return; }
+  if(b.dataset.arm){ clearTimeout(+b.dataset.arm); delete b.dataset.arm; b.textContent="🗑 全部刪除"; b.classList.remove("warn");
+    const n=selected.length; clearAll(); toast(`已刪除多畫面中的全部 ${n} 個畫面`); return; }
+  b.textContent=`再按一次確認刪除（${selected.length} 個）`; b.classList.add("warn");
+  b.dataset.arm=setTimeout(()=>{ delete b.dataset.arm; b.textContent="🗑 全部刪除"; b.classList.remove("warn"); },4000);
+}
+
 function afterSelChange(){
   document.getElementById("selCount").textContent=selected.length;
   try{localStorage.setItem("cctv-sel",JSON.stringify(selected));}catch(e){}
@@ -892,6 +945,7 @@ function openPopup(c){
   box.innerHTML=`<h3>${esc(c.name)}</h3><div class="v"></div>
     <div class="row"><button class="btn primary" id="ppBtn"></button>
     <a class="btn" href="${esc(c.stream)}" target="_blank" rel="noopener" style="text-decoration:none">新分頁</a>
+    <button class="btn" id="ppShare" title="複製影像原始連結">🔗 分享</button>
     <span class="status" style="margin:0">${ref()?fmtD(dist(ref(),c)):""}</span></div>
     <div class="row" id="ppRoute"></div>
     <div class="status" style="margin-top:4px">${esc(c.city)}｜來源：${esc(srcName(c))}</div>`;
@@ -901,6 +955,7 @@ function openPopup(c){
   popup.on("close",()=>{popupPlayer&&popupPlayer();popupPlayer=null;});
   box.querySelector("#ppBtn").onclick=()=>{toggleSel(c.id);};
   updatePopupBtn();
+  box.querySelector("#ppShare").onclick=()=>shareCam(c);
 }
 function updatePopupBtn(){
   const b=document.getElementById("ppBtn"); if(!b) return;
@@ -991,8 +1046,9 @@ function renderTiles(){
       t=document.createElement("div");t.className="tile";t.dataset.id=id;
       t.innerHTML=`<div class="v" style="position:absolute;inset:0"></div><div class="hit"></div><div class="rec">● REC</div><div class="span"></div><div class="rs" title="拖曳調整畫面大小（雙擊恢復）"></div><div class="cap"><span class="no"></span><span class="n">${esc(c.name)}</span>
         <button data-a="loc" title="地圖定位">⌖</button><button data-a="big" title="放大／縮回">⤢</button><button data-a="fs" title="全螢幕">⛶</button><button data-a="snap" title="截圖下載">📷</button><button data-a="recd" title="錄影下載">⏺</button>
-        <button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
+        <button data-a="share" title="分享（複製連結）">🔗</button><button data-a="re" title="重新整理">↻</button><a data-a="open" title="在新分頁開啟" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;background:#0008;border:1px solid #fff3;border-radius:4px;padding:0 6px;font-size:12px">↗</a><button data-a="x" title="移除">✕</button></div>`;
       t.querySelector("[data-a=x]").onclick=()=>toggleSel(id);
+      t.querySelector("[data-a=share]").onclick=()=>shareCam(c);
       t.querySelector("[data-a=open]").href=c.stream||"#"; t.title=c.stream||"";
       t.querySelector("[data-a=re]").onclick=()=>{players.get(id)?.();players.set(id,mountPlayer(t.querySelector(".v"),c));};
       t.querySelector("[data-a=big]").onclick=()=>toggleFocus(t);
